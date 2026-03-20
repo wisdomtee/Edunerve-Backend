@@ -2,13 +2,30 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
+    "moduleResolution": "node",
     "rootDir": ".",
     "outDir": "dist",
     "esModuleInterop": true,
     "strict": false,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "types": ["node"]
   },
   "include": ["src/**/*.ts", "prisma/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "prisma/seed.ts",
+    "src/seed.ts",
+    "src/controllers/**/*",
+    "src/services/**/*",
+    "src/workers/**/*",
+    "src/payment/**/*",
+    "src/sms/**/*",
+    "src/routes/*.routes.ts",
+    "src/routes/paystack.ts",
+    "src/routes/payment.routes.ts",
+    "src/routes/verification.routes.ts",
+    "src/routes/bulk.routes.ts"
+  ]
 }
