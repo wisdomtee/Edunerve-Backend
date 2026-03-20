@@ -10,6 +10,7 @@ router.post("/login", async (req, res) => {
     const { email, password } = req.body
 
     console.log("LOGIN ATTEMPT:", email)
+    console.log("PRISMA CHECK:", prisma)
 
     const user = await prisma.user.findUnique({
       where: { email }
