@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { prisma } from "../prisma"
+import prisma from "../prisma"
 import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
@@ -17,16 +17,19 @@ router.get("/", authMiddleware, async (_req, res) => {
       },
     })
 
-    res.json(schools)
+    return res.json(schools)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to fetch schools" })
+    console.error("GET /schools error:", error)
+    return res.status(500).json({ message: "Failed to fetch schools" })
   }
 })
 
 router.post("/create", authMiddleware, async (req, res) => {
   try {
-    const { name, address } = req.body
+    const { name, address } = req.body as {
+      name: string
+      address: string
+    }
 
     if (!name || !address) {
       return res.status(400).json({ message: "Name and address are required" })
@@ -39,17 +42,24 @@ router.post("/create", authMiddleware, async (req, res) => {
       },
     })
 
-    res.json(school)
+    return res.json(school)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to create school" })
+    console.error("POST /schools/create error:", error)
+    return res.status(500).json({ message: "Failed to create school" })
   }
 })
 
 router.put("/:id", authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params
-    const { name, address } = req.body
+    const id = req.params.id as string
+    const { name, address } = req.body as {
+      name: string
+      address: string
+    }
+
+    if (!id) {
+      return res.status(400).json({ message: "School id is required" })
+    }
 
     if (!name || !address) {
       return res.status(400).json({ message: "Name and address are required" })
@@ -63,25 +73,29 @@ router.put("/:id", authMiddleware, async (req, res) => {
       },
     })
 
-    res.json(school)
+    return res.json(school)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to update school" })
+    console.error("PUT /schools/:id error:", error)
+    return res.status(500).json({ message: "Failed to update school" })
   }
 })
 
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
+
+    if (!id) {
+      return res.status(400).json({ message: "School id is required" })
+    }
 
     await prisma.school.delete({
       where: { id },
     })
 
-    res.json({ message: "School deleted successfully" })
+    return res.json({ message: "School deleted successfully" })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to delete school" })
+    console.error("DELETE /schools/:id error:", error)
+    return res.status(500).json({ message: "Failed to delete school" })
   }
 })
 

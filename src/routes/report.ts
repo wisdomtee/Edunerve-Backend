@@ -1,13 +1,17 @@
 import { Router } from "express"
 import PDFDocument from "pdfkit"
-import { prisma } from "../prisma"
+import prisma from "../prisma"
 import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
 
 router.get("/:studentId", authMiddleware, async (req, res) => {
   try {
-    const { studentId } = req.params
+    const studentId = req.params.studentId as string
+
+    if (!studentId) {
+      return res.status(400).json({ message: "studentId is required" })
+    }
 
     const student = await prisma.student.findUnique({
       where: { id: studentId },
@@ -66,9 +70,7 @@ router.get("/:studentId", authMiddleware, async (req, res) => {
       doc.fontSize(12).text("No results available.")
     } else {
       results.forEach((result, index) => {
-        doc
-          .fontSize(12)
-          .text(`${index + 1}. ${result.subject}: ${result.score}`)
+        doc.fontSize(12).text(`${index + 1}. ${result.subject}: ${result.score}`)
       })
     }
 
@@ -83,8 +85,8 @@ router.get("/:studentId", authMiddleware, async (req, res) => {
 
     doc.end()
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to generate report card" })
+    console.error("GET /report/:studentId error:", error)
+    return res.status(500).json({ message: "Failed to generate report card" })
   }
 })
 

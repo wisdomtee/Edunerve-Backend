@@ -1,6 +1,6 @@
 import { Router } from "express"
-import { prisma } from "../prisma"
-import { Parser } from "json2csv"
+import prisma from "../prisma"
+import { AttendanceStatus } from "@prisma/client"
 import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
@@ -47,7 +47,11 @@ router.get("/", authMiddleware, async (req, res) => {
 // Mark or update single attendance
 router.post("/mark", authMiddleware, async (req, res) => {
   try {
-    const { studentId, date, status } = req.body
+    const { studentId, date, status } = req.body as {
+      studentId: string
+      date: string
+      status: AttendanceStatus
+    }
 
     if (!studentId || !date || !status) {
       return res.status(400).json({
@@ -95,7 +99,10 @@ router.post("/mark", authMiddleware, async (req, res) => {
 // Mark or update bulk attendance
 router.post("/mark-bulk", authMiddleware, async (req, res) => {
   try {
-    const { date, records } = req.body
+    const { date, records } = req.body as {
+      date: string
+      records: { studentId: string; status: AttendanceStatus }[]
+    }
 
     if (!date || !Array.isArray(records) || records.length === 0) {
       return res.status(400).json({
@@ -118,7 +125,7 @@ router.post("/mark-bulk", authMiddleware, async (req, res) => {
     }
 
     const results = await Promise.all(
-      records.map(async (record: { studentId: string; status: string }) => {
+      records.map(async (record) => {
         const existing = await prisma.attendance.findFirst({
           where: {
             studentId: record.studentId,

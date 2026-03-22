@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { prisma } from "../prisma"
+import prisma from "../prisma"
 import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
@@ -17,19 +17,20 @@ router.get("/", authMiddleware, async (_req, res) => {
       },
     })
 
-    res.json(classes)
-
+    return res.json(classes)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to fetch classes" })
+    console.error("GET /classes error:", error)
+    return res.status(500).json({ message: "Failed to fetch classes" })
   }
 })
-
 
 // CREATE class
 router.post("/create", authMiddleware, async (req, res) => {
   try {
-    const { name, schoolId } = req.body
+    const { name, schoolId } = req.body as {
+      name: string
+      schoolId: string
+    }
 
     if (!name || !schoolId) {
       return res.status(400).json({
@@ -44,20 +45,25 @@ router.post("/create", authMiddleware, async (req, res) => {
       },
     })
 
-    res.json(newClass)
-
+    return res.json(newClass)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to create class" })
+    console.error("POST /classes/create error:", error)
+    return res.status(500).json({ message: "Failed to create class" })
   }
 })
-
 
 // UPDATE class
 router.put("/:id", authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params
-    const { name, schoolId } = req.body
+    const id = req.params.id as string
+    const { name, schoolId } = req.body as {
+      name: string
+      schoolId: string
+    }
+
+    if (!id) {
+      return res.status(400).json({ message: "Class id is required" })
+    }
 
     if (!name || !schoolId) {
       return res.status(400).json({
@@ -73,29 +79,30 @@ router.put("/:id", authMiddleware, async (req, res) => {
       },
     })
 
-    res.json(updatedClass)
-
+    return res.json(updatedClass)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to update class" })
+    console.error("PUT /classes/:id error:", error)
+    return res.status(500).json({ message: "Failed to update class" })
   }
 })
-
 
 // DELETE class
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
+
+    if (!id) {
+      return res.status(400).json({ message: "Class id is required" })
+    }
 
     await prisma.class.delete({
       where: { id },
     })
 
-    res.json({ message: "Class deleted successfully" })
-
+    return res.json({ message: "Class deleted successfully" })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to delete class" })
+    console.error("DELETE /classes/:id error:", error)
+    return res.status(500).json({ message: "Failed to delete class" })
   }
 })
 

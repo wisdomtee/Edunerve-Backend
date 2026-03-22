@@ -1,31 +1,31 @@
 {
   "compilerOptions": {
+    "types": ["node"],
+    "moduleResolution": "node",
     "target": "ES2020",
     "module": "commonjs",
-    "moduleResolution": "node",
-    "rootDir": ".",
     "outDir": "dist",
     "esModuleInterop": true,
     "strict": false,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "types": ["node"]
+    "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "prisma/**/*.ts"],
+  "files": [
+    "src/prisma.ts",
+    "src/server.ts",
+    "src/middleware/auth.ts",
+    "src/routes/admin.ts",
+    "src/routes/attendance.ts",
+    "src/routes/auth.ts",
+    "src/routes/classes.ts",
+    "src/routes/dashboard.ts",
+    "src/routes/report.ts",
+    "src/routes/results.ts",
+    "src/routes/schools.ts",
+    "src/routes/students.ts",
+    "src/routes/teachers.ts"
+  ],
   "exclude": [
     "node_modules",
-    "dist",
-    "prisma/seed.ts",
-    "src/seed.ts",
-    "src/controllers/**/*",
-    "src/services/**/*",
-    "src/workers/**/*",
-    "src/payment/**/*",
-    "src/sms/**/*",
-    "src/routes/*.routes.ts",
-    "src/routes/paystack.ts",
-    "src/routes/payment.routes.ts",
-    "src/routes/verification.routes.ts",
-    "src/routes/bulk.routes.ts"
+    "dist"
   ]
 }

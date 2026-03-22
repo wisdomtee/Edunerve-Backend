@@ -1,12 +1,16 @@
 import { Router } from "express"
-import { prisma } from "../prisma"
+import prisma from "../prisma"
 import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
 
 router.get("/:studentId", authMiddleware, async (req, res) => {
   try {
-    const { studentId } = req.params
+    const studentId = req.params.studentId as string
+
+    if (!studentId) {
+      return res.status(400).json({ message: "studentId is required" })
+    }
 
     const results = await prisma.result.findMany({
       where: { studentId },
@@ -15,18 +19,22 @@ router.get("/:studentId", authMiddleware, async (req, res) => {
       },
     })
 
-    res.json(results)
+    return res.json(results)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to fetch results" })
+    console.error("GET /results/:studentId error:", error)
+    return res.status(500).json({ message: "Failed to fetch results" })
   }
 })
 
 router.post("/", authMiddleware, async (req, res) => {
   try {
-    const { studentId, subject, score } = req.body
+    const { studentId, subject, score } = req.body as {
+      studentId: string
+      subject: string
+      score: number | string
+    }
 
-    if (!studentId || !subject || score === undefined) {
+    if (!studentId || !subject || score === undefined || score === null) {
       return res.status(400).json({
         message: "studentId, subject and score are required",
       })
@@ -40,25 +48,29 @@ router.post("/", authMiddleware, async (req, res) => {
       },
     })
 
-    res.json(result)
+    return res.json(result)
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to create result" })
+    console.error("POST /results error:", error)
+    return res.status(500).json({ message: "Failed to create result" })
   }
 })
 
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params
+    const id = req.params.id as string
+
+    if (!id) {
+      return res.status(400).json({ message: "Result id is required" })
+    }
 
     await prisma.result.delete({
       where: { id },
     })
 
-    res.json({ message: "Result deleted" })
+    return res.json({ message: "Result deleted" })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Failed to delete result" })
+    console.error("DELETE /results/:id error:", error)
+    return res.status(500).json({ message: "Failed to delete result" })
   }
 })
 

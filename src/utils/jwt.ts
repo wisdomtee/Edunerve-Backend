@@ -1,12 +1,7 @@
-export const generateToken = (user: any) => {
-  return jwt.sign(
-    {
-      userId: user.id,
-      role: user.role,
-    },
-    process.env.JWT_SECRET!,
-    {
-      expiresIn: "7d",
-    }
-  );
-};
+import jwt from "jsonwebtoken"
+
+export function generateToken(payload: { id: string; email: string }) {
+  return jwt.sign(payload, process.env.JWT_SECRET as string, {
+    expiresIn: "7d",
+  })
+}
