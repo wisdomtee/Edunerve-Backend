@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 
-export interface AuthRequest extends Request {
+export type AuthRequest = Request & {
   user?: {
     id: string
     email: string
-    role: string
+    role?: string
   }
 }
 
@@ -15,7 +15,7 @@ export const authMiddleware = (
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization
+    const authHeader = req.get("authorization")
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
@@ -34,11 +34,11 @@ export const authMiddleware = (
     const decoded = jwt.verify(token, process.env.JWT_SECRET) as {
       id: string
       email: string
-      role: string
+      role?: string
     }
 
     req.user = decoded
-    next()
+    return next()
   } catch (error) {
     return res.status(401).json({
       message: "Unauthorized: Invalid token",
