@@ -4,73 +4,151 @@ import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
 
-router.get("/:studentId", authMiddleware, async (req, res) => {
+// GET ALL RESULTS
+router.get("/", authMiddleware, async (_req, res) => {
   try {
-    const studentId = req.params.studentId as string
-
-    if (!studentId) {
-      return res.status(400).json({ message: "studentId is required" })
-    }
-
     const results = await prisma.result.findMany({
-      where: { studentId },
+      include: {
+        student: true,
+        subject: true,
+        teacher: true,
+        school: true,
+      },
       orderBy: {
         createdAt: "desc",
       },
     })
 
-    return res.json(results)
-  } catch (error) {
-    console.error("GET /results/:studentId error:", error)
-    return res.status(500).json({ message: "Failed to fetch results" })
+    return res.status(200).json({ results })
+  } catch (error: any) {
+    console.error("GET RESULTS ERROR:", error)
+    return res.status(500).json({
+      message: "Failed to fetch results",
+      error: error.message,
+    })
   }
 })
 
-router.post("/", authMiddleware, async (req, res) => {
+// GET RESULTS FOR ONE STUDENT
+router.get("/student/:studentId", authMiddleware, async (req, res) => {
   try {
-    const { studentId, subject, score } = req.body as {
-      studentId: string
-      subject: string
-      score: number | string
+    const studentId = Number(req.params.studentId)
+
+    const results = await prisma.result.findMany({
+      where: { studentId },
+      include: {
+        subject: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    })
+
+    return res.json({ results })
+  } catch (error: any) {
+    console.error("GET STUDENT RESULTS ERROR:", error)
+
+    return res.status(500).json({
+      message: "Failed to fetch student results",
+      error: error.message,
+    })
+  }
+})
+
+// CREATE RESULT
+router.post("/create", authMiddleware, async (req, res) => {
+  try {
+    const { studentId, subjectId, teacherId, schoolId, score, term, session } = req.body
+
+    if (!studentId || !subjectId || score === undefined || score === null) {
+      return res.status(400).json({
+        message: "studentId, subjectId and score are required",
+      })
     }
 
-    if (!studentId || !subject || score === undefined || score === null) {
-      return res.status(400).json({
-        message: "studentId, subject and score are required",
+    const student = await prisma.student.findUnique({
+      where: { id: Number(studentId) },
+    })
+
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" })
+    }
+
+    const subject = await prisma.subject.findUnique({
+      where: { id: Number(subjectId) },
+    })
+
+    if (!subject) {
+      return res.status(404).json({ message: "Subject not found" })
+    }
+
+    let teacher = null
+    if (teacherId) {
+      teacher = await prisma.teacher.findUnique({
+        where: { id: Number(teacherId) },
       })
+
+      if (!teacher) {
+        return res.status(404).json({ message: "Teacher not found" })
+      }
     }
 
     const result = await prisma.result.create({
       data: {
-        studentId,
-        subject,
+        studentId: Number(studentId),
+        subjectId: Number(subjectId),
+        teacherId: teacherId ? Number(teacherId) : null,
+        schoolId: schoolId ? Number(schoolId) : student.schoolId,
         score: Number(score),
+        term: term || null,
+        session: session || null,
+      },
+      include: {
+        student: true,
+        subject: true,
+        teacher: true,
+        school: true,
       },
     })
 
-    return res.json(result)
-  } catch (error) {
-    console.error("POST /results error:", error)
-    return res.status(500).json({ message: "Failed to create result" })
+    return res.status(201).json(result)
+  } catch (error: any) {
+    console.error("CREATE RESULT ERROR:", error)
+    return res.status(500).json({
+      message: "Failed to create result",
+      error: error.message,
+    })
   }
 })
 
+// DELETE RESULT
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const id = req.params.id as string
+    const id = Number(req.params.id)
 
-    if (!id) {
-      return res.status(400).json({ message: "Result id is required" })
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid result id" })
+    }
+
+    const existingResult = await prisma.result.findUnique({
+      where: { id },
+    })
+
+    if (!existingResult) {
+      return res.status(404).json({ message: "Result not found" })
     }
 
     await prisma.result.delete({
       where: { id },
     })
 
-    return res.json({ message: "Result deleted" })
-  } catch (error) {
-    console.error("DELETE /results/:id error:", error)
-    return res.status(500).json({ message: "Failed to delete result" })
+    return res.status(200).json({ message: "Result deleted successfully" })
+  } catch (error: any) {
+    console.error("DELETE RESULT ERROR:", error)
+    return res.status(500).json({
+      message: "Failed to delete result",
+      error: error.message,
+    })
   }
 })
 

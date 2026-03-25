@@ -1,92 +1,87 @@
 import { Router } from "express"
-import PDFDocument from "pdfkit"
 import prisma from "../prisma"
 import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
 
-router.get("/:studentId", authMiddleware, async (req, res) => {
+router.get("/", authMiddleware, async (_req, res) => {
   try {
-    const studentId = req.params.studentId as string
+    const results = await prisma.result.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        student: true,
+      },
+    })
 
-    if (!studentId) {
-      return res.status(400).json({ message: "studentId is required" })
+    return res.status(200).json(results)
+  } catch (error: any) {
+    console.error("GET RESULTS ERROR:", error)
+
+    return res.status(500).json({
+      message: "Failed to fetch results",
+      error: error.message,
+    })
+  }
+})
+
+router.post("/create", authMiddleware, async (req, res) => {
+  try {
+    const { subject, score, studentId } = req.body
+
+    if (!subject || score === undefined || !studentId) {
+      return res.status(400).json({
+        message: "Subject, score and studentId are required",
+      })
+    }
+
+    const numericScore = Number(score)
+
+    if (Number.isNaN(numericScore)) {
+      return res.status(400).json({
+        message: "Score must be a valid number",
+      })
+    }
+
+    if (numericScore < 0 || numericScore > 100) {
+      return res.status(400).json({
+        message: "Score must be between 0 and 100",
+      })
     }
 
     const student = await prisma.student.findUnique({
       where: { id: studentId },
-      include: {
-        school: true,
-        classItem: true,
-        results: {
-          orderBy: {
-            createdAt: "desc",
-          },
-        },
-      },
     })
 
     if (!student) {
-      return res.status(404).json({ message: "Student not found" })
-    }
-
-    const results = student.results || []
-    const total = results.reduce((sum, item) => sum + item.score, 0)
-    const average = results.length ? total / results.length : 0
-
-    let grade = "F"
-    if (average >= 70) grade = "A"
-    else if (average >= 60) grade = "B"
-    else if (average >= 50) grade = "C"
-    else if (average >= 45) grade = "D"
-
-    res.setHeader("Content-Type", "application/pdf")
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${student.name.replace(/\s+/g, "_")}_report_card.pdf"`
-    )
-
-    const doc = new PDFDocument({ margin: 50 })
-    doc.pipe(res)
-
-    doc.fontSize(22).text(student.school?.name || "School Report Card", {
-      align: "center",
-    })
-
-    doc.moveDown()
-    doc.fontSize(18).text("Student Report Card", { align: "center" })
-
-    doc.moveDown(2)
-    doc.fontSize(12).text(`Student Name: ${student.name}`)
-    doc.text(`Student ID: ${student.studentId}`)
-    doc.text(`Class: ${student.classItem?.name || "-"}`)
-    doc.text(`School: ${student.school?.name || "-"}`)
-
-    doc.moveDown(2)
-    doc.fontSize(14).text("Results", { underline: true })
-    doc.moveDown()
-
-    if (results.length === 0) {
-      doc.fontSize(12).text("No results available.")
-    } else {
-      results.forEach((result, index) => {
-        doc.fontSize(12).text(`${index + 1}. ${result.subject}: ${result.score}`)
+      return res.status(404).json({
+        message: "Student not found",
       })
     }
 
-    doc.moveDown(2)
-    doc.fontSize(12).text(`Average Score: ${average.toFixed(2)}`)
-    doc.text(`Grade: ${grade}`)
+    const result = await prisma.result.create({
+      data: {
+        subject,
+        score: numericScore,
+        studentId,
+      },
+      include: {
+        student: true,
+      },
+    })
 
-    doc.moveDown(3)
-    doc.text("Principal Signature: ______________________")
-    doc.moveDown(2)
-    doc.text("Date: ______________________")
+    return res.status(201).json({
+      message: "Result created successfully",
+      result,
+    })
+  } catch (error: any) {
+    console.error("CREATE RESULT ERROR:", error)
 
-    doc.end()
-  } catch (error) {
-    console.error("GET /report/:studentId error:", error)
-    return res.status(500).json({ message: "Failed to generate report card" })
+    return res.status(500).json({
+      message: "Failed to create result",
+      error: error.message,
+    })
   }
 })
 

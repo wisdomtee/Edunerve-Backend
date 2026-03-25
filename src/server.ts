@@ -13,6 +13,7 @@ import dashboardRouter from "./routes/dashboard"
 import resultsRouter from "./routes/results"
 import reportRouter from "./routes/report"
 import adminRoutes from "./routes/admin"
+import subjectRoutes from "./routes/subject"
 
 dotenv.config()
 
@@ -62,6 +63,7 @@ app.use("/dashboard", dashboardRouter)
 app.use("/results", resultsRouter)
 app.use("/report", reportRouter)
 app.use("/admin", adminRoutes)
+app.use("/subjects", subjectRoutes)
 
 app.use(
   (
