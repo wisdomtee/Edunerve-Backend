@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start":  "node dist/server.js",
+    "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
@@ -23,18 +23,19 @@
     "bullmq": "^5.70.1",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.6",
-    "csv-parse": "^6.1.0",
+    "csv-parse": "^6.2.1",
     "csv-parser": "^3.2.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "ioredis": "^5.10.0",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.7.0",
     "multer": "^2.1.1",
     "multer-storage-cloudinary": "^4.0.0",
     "nodemailer": "^8.0.1",
     "pdfkit": "^0.18.0",
-    "recharts": "^3.8.0",
+    "recharts": "^3.8.1",
     "typescript": "^5.9.3",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
@@ -49,6 +50,9 @@
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "keywords": [],
   "author": "",

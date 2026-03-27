@@ -17,6 +17,14 @@ router.post("/login", async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password: true,
+        role: true,
+        schoolId: true,
+      },
     })
 
     if (!user) {
@@ -38,6 +46,7 @@ router.post("/login", async (req, res) => {
         id: user.id,
         email: user.email,
         role: user.role,
+        schoolId: user.schoolId ?? null,
       },
       process.env.JWT_SECRET as string,
       { expiresIn: "7d" }
@@ -51,6 +60,7 @@ router.post("/login", async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        schoolId: user.schoolId ?? null,
       },
     })
   } catch (error: any) {
