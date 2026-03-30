@@ -34,7 +34,6 @@ router.get("/student/:studentId", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Student not found" })
     }
 
-    // Get this student's filtered results
     const results = await prisma.result.findMany({
       where: {
         studentId,
@@ -53,7 +52,6 @@ router.get("/student/:studentId", authMiddleware, async (req, res) => {
     const averageScore = results.length ? totalScore / results.length : 0
     const grade = getGrade(averageScore)
 
-    // Get all students in same class for ranking
     const classStudents = await prisma.student.findMany({
       where: {
         classId: student.classId,
@@ -61,6 +59,7 @@ router.get("/student/:studentId", authMiddleware, async (req, res) => {
       select: {
         id: true,
         name: true,
+        studentId: true,
         results: {
           where: {
             ...(term ? { term } : {}),
@@ -98,7 +97,6 @@ router.get("/student/:studentId", authMiddleware, async (req, res) => {
         id: student.id,
         name: student.name,
         studentId: student.studentId,
-        gender: student.gender,
         class: student.class,
         school: student.school,
       },

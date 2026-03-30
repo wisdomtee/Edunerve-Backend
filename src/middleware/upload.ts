@@ -4,10 +4,10 @@ import cloudinary from "../config/cloudinary"
 
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder: "edunerve/students",
-    allowed_formats: ["jpg", "png", "jpeg"],
-  },
+  params: async () => ({
+    resource_type: "image",
+    public_id: `edunerve-student-${Date.now()}`,
+  }),
 })
 
 const upload = multer({ storage })

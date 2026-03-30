@@ -8,30 +8,27 @@ router.get("/:studentId", authMiddleware, async (req: AuthRequest, res) => {
   try {
     const studentId = Number(req.params.studentId)
 
+    if (isNaN(studentId)) {
+      return res.status(400).json({ message: "Invalid student ID" })
+    }
+
     const fees = await prisma.fee.findMany({
       where: { studentId },
       orderBy: { createdAt: "desc" },
     })
 
-    const formatted = fees.map((fee) => {
-      const balance = fee.totalAmount - fee.amountPaid
+    const formatted = fees.map((fee) => ({
+      ...fee,
+      totalAmount: fee.amount,
+      amountPaid: 0,
+      balance: fee.amount,
+      status: fee.status || "UNPAID",
+    }))
 
-      let status: "PAID" | "PARTIAL" | "UNPAID" = "UNPAID"
-
-      if (fee.amountPaid === fee.totalAmount) status = "PAID"
-      else if (fee.amountPaid > 0) status = "PARTIAL"
-
-      return {
-        ...fee,
-        balance,
-        status,
-      }
-    })
-
-    res.json(formatted)
+    return res.json(formatted)
   } catch (error) {
     console.error("GET FEES ERROR:", error)
-    res.status(500).json({ message: "Failed to fetch fees" })
+    return res.status(500).json({ message: "Failed to fetch fees" })
   }
 })
 

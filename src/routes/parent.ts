@@ -27,7 +27,6 @@ router.get(
             select: {
               id: true,
               name: true,
-              gender: true,
               parentId: true,
               class: {
                 select: {

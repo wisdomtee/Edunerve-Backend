@@ -73,7 +73,7 @@ router.get(
       const formattedStudents = students.map((student) => ({
         id: student.id,
         name: student.name,
-        gender: student.gender,
+        studentId: student.studentId,
         parentId: student.parentId,
         classId: student.classId,
         schoolId: student.schoolId,
@@ -108,7 +108,7 @@ router.get(
         where:
           req.user?.role === "SUPER_ADMIN"
             ? getSchoolFilter(req)
-            : { schoolId: req.user!.schoolId! },
+            : { schoolId: req.user?.schoolId },
         select: {
           id: true,
           name: true,
@@ -295,7 +295,7 @@ router.get(
       return res.json({
         id: student.id,
         name: student.name,
-        gender: student.gender,
+        studentId: student.studentId,
         parentId: student.parentId,
         classId: student.classId,
         schoolId: student.schoolId,
@@ -327,7 +327,7 @@ router.post(
   requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, classId, gender } = req.body
+      const { name, classId } = req.body
 
       if (!name || !classId) {
         return res.status(400).json({
@@ -354,9 +354,13 @@ router.post(
       const student = await prisma.student.create({
         data: {
           name,
-          classId: Number(classId),
-          schoolId: req.user!.schoolId!,
-          gender: gender || null,
+          studentId: `STU-${Date.now()}`,
+          class: {
+            connect: { id: Number(classId) },
+          },
+          school: {
+            connect: { id: req.user!.schoolId! },
+          },
         },
         include: {
           class: {
@@ -385,7 +389,7 @@ router.post(
         data: {
           title: "New Student Registered",
           message: `${student.name} has been added successfully to ${
-            student.class?.name || "a class"
+            classRecord.name || "a class"
           }.`,
           userId: req.user!.id,
         },
@@ -505,7 +509,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
-      const { name, gender, classId, parentId } = req.body
+      const { name, classId, parentId } = req.body
 
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid student id" })
@@ -568,7 +572,6 @@ router.put(
         where: { id },
         data: {
           name: name ?? existingStudent.name,
-          gender: gender ?? existingStudent.gender,
           classId: resolvedClassId,
           parentId: resolvedParentId,
         },
