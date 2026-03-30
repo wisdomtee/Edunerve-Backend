@@ -11,10 +11,10 @@ const router = Router()
 router.get(
   "/",
   authMiddleware,
-  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER"),
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { date, studentId } = req.query
+      const { date, studentId, classId } = req.query
 
       const where: any = {}
 
@@ -41,16 +41,40 @@ router.get(
         where.studentId = parsedStudentId
       }
 
-      if (req.user?.role !== "SUPER_ADMIN") {
+      if (classId) {
+        const parsedClassId = Number(classId)
+
+        if (isNaN(parsedClassId)) {
+          return res.status(400).json({ message: "Invalid classId" })
+        }
+
         where.student = {
-          schoolId: req.user.schoolId!,
+          ...(where.student || {}),
+          classId: parsedClassId,
+        }
+      }
+
+      if (req.user?.role !== "SUPER_ADMIN") {
+        if (!req.user?.schoolId) {
+          return res.status(400).json({
+            message: "No school assigned to this user",
+          })
+        }
+
+        where.student = {
+          ...(where.student || {}),
+          schoolId: req.user.schoolId,
         }
       }
 
       const attendance = await prisma.attendance.findMany({
         where,
         include: {
-          student: true,
+          student: {
+            include: {
+              class: true,
+            },
+          },
         },
         orderBy: {
           date: "desc",
@@ -68,6 +92,83 @@ router.get(
   }
 )
 
+// GET STUDENTS IN A CLASS FOR ATTENDANCE
+router.get(
+  "/class/:classId/students",
+  authMiddleware,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const classId = Number(req.params.classId)
+
+      if (isNaN(classId)) {
+        return res.status(400).json({ message: "Invalid class id" })
+      }
+
+      const classItem = await prisma.class.findUnique({
+        where: { id: classId },
+        include: {
+          teacher: true,
+          school: true,
+        },
+      })
+
+      if (!classItem) {
+        return res.status(404).json({ message: "Class not found" })
+      }
+
+      if (req.user?.role !== "SUPER_ADMIN") {
+        if (!req.user?.schoolId) {
+          return res.status(400).json({
+            message: "No school assigned to this user",
+          })
+        }
+
+        if (classItem.schoolId !== req.user.schoolId) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
+
+      if (req.user?.role === "TEACHER") {
+        const teacher = await prisma.teacher.findUnique({
+          where: { userId: req.user.id },
+        })
+
+        if (!teacher) {
+          return res.status(404).json({ message: "Teacher profile not found" })
+        }
+
+        if (classItem.teacherId !== teacher.id) {
+          return res.status(403).json({
+            message: "You can only access students in your assigned classes",
+          })
+        }
+      }
+
+      const students = await prisma.student.findMany({
+        where: {
+          classId,
+        },
+        include: {
+          class: true,
+          school: true,
+        },
+        orderBy: {
+          name: "asc",
+        },
+      })
+
+      return res.status(200).json({ students })
+    } catch (error: any) {
+      console.error("GET CLASS STUDENTS ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to fetch class students",
+        error: error.message,
+      })
+    }
+  }
+)
+
 // MARK BULK ATTENDANCE
 // SCHOOL_ADMIN / TEACHER only
 router.post(
@@ -76,7 +177,7 @@ router.post(
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { date, records } = req.body
+      const { date, classId, records } = req.body
 
       if (!date || !Array.isArray(records)) {
         return res.status(400).json({
@@ -88,6 +189,52 @@ router.post(
         return res.status(400).json({
           message: "No school assigned to this user",
         })
+      }
+
+      let parsedClassId: number | null = null
+
+      if (classId !== undefined && classId !== null && classId !== "") {
+        parsedClassId = Number(classId)
+
+        if (isNaN(parsedClassId)) {
+          return res.status(400).json({
+            message: "Invalid classId",
+          })
+        }
+
+        const classItem = await prisma.class.findUnique({
+          where: { id: parsedClassId },
+        })
+
+        if (!classItem) {
+          return res.status(404).json({
+            message: "Class not found",
+          })
+        }
+
+        if (classItem.schoolId !== req.user.schoolId) {
+          return res.status(403).json({
+            message: "Forbidden",
+          })
+        }
+
+        if (req.user.role === "TEACHER") {
+          const teacher = await prisma.teacher.findUnique({
+            where: { userId: req.user.id },
+          })
+
+          if (!teacher) {
+            return res.status(404).json({
+              message: "Teacher profile not found",
+            })
+          }
+
+          if (classItem.teacherId !== teacher.id) {
+            return res.status(403).json({
+              message: "You can only mark attendance for your assigned classes",
+            })
+          }
+        }
       }
 
       const attendanceDate = new Date(date)
@@ -106,6 +253,7 @@ router.post(
 
         if (!student) continue
         if (student.schoolId !== req.user.schoolId) continue
+        if (parsedClassId && student.classId !== parsedClassId) continue
 
         const existing = await prisma.attendance.findFirst({
           where: {

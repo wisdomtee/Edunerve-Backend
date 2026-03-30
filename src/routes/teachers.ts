@@ -1,24 +1,34 @@
 import { Router, Response } from "express"
+import bcrypt from "bcryptjs"
 import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
 import { authorizeRoles } from "../middleware/authorize"
-import {
-  requireSchoolUser,
-  enforceSameSchool,
-  getSchoolFilter,
-} from "../middleware/school"
 
 const router = Router()
 
+// =======================
+// GET ALL TEACHERS
+// =======================
 router.get(
   "/",
   authMiddleware,
-  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
-  requireSchoolUser,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
+      let where: any = {}
+
+      if (req.user?.role !== "SUPER_ADMIN") {
+        if (!req.user?.schoolId) {
+          return res.status(400).json({
+            message: "No school assigned to this user",
+          })
+        }
+
+        where.schoolId = req.user.schoolId
+      }
+
       const teachers = await prisma.teacher.findMany({
-        where: getSchoolFilter(req),
+        where,
         include: {
           school: true,
           user: true,
@@ -30,9 +40,9 @@ router.get(
         },
       })
 
-      return res.status(200).json(teachers)
+      return res.status(200).json({ teachers })
     } catch (error: any) {
-      console.error("GET /teachers error:", error)
+      console.error("GET TEACHERS ERROR:", error)
       return res.status(500).json({
         message: "Failed to fetch teachers",
         error: error.message,
@@ -41,48 +51,85 @@ router.get(
   }
 )
 
+// =======================
+// GET TEACHER PROFILE (LOGGED IN TEACHER)
+// =======================
+router.get(
+  "/me",
+  authMiddleware,
+  authorizeRoles("TEACHER"),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const teacher = await prisma.teacher.findUnique({
+        where: {
+          userId: req.user!.id,
+        },
+        include: {
+          school: true,
+          user: true,
+          classes: true,
+          results: {
+            include: {
+              student: true,
+              subject: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+        },
+      })
+
+      if (!teacher) {
+        return res.status(404).json({
+          message: "Teacher profile not found",
+        })
+      }
+
+      return res.status(200).json(teacher)
+    } catch (error: any) {
+      console.error("GET TEACHER PROFILE ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to fetch teacher profile",
+        error: error.message,
+      })
+    }
+  }
+)
+
+// =======================
+// GET TEACHER SUMMARY (FOR DASHBOARD)
+// =======================
 router.get(
   "/me/summary",
   authMiddleware,
   authorizeRoles("TEACHER"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
       const teacher = await prisma.teacher.findUnique({
-        where: { userId: req.user!.id },
+        where: {
+          userId: req.user!.id,
+        },
         include: {
           classes: {
             include: {
               students: true,
             },
-            orderBy: { createdAt: "desc" },
           },
           results: true,
         },
       })
 
       if (!teacher) {
-        return res.status(404).json({ message: "Teacher profile not found" })
+        return res.status(404).json({
+          message: "Teacher profile not found",
+        })
       }
 
-      const classesCount = teacher.classes.length
-      const studentsCount = teacher.classes.reduce(
-        (sum, cls) => sum + cls.students.length,
+      const totalStudents = teacher.classes.reduce(
+        (sum, classItem) => sum + classItem.students.length,
         0
       )
-      const resultsCount = teacher.results.length
-
-      const classIds = teacher.classes.map((cls) => cls.id)
-
-      const attendanceCount = await prisma.attendance.count({
-        where: {
-          student: {
-            classId: {
-              in: classIds.length > 0 ? classIds : [-1],
-            },
-          },
-        },
-      })
 
       return res.status(200).json({
         teacher: {
@@ -92,15 +139,18 @@ router.get(
           subject: teacher.subject,
         },
         stats: {
-          students: studentsCount,
-          classes: classesCount,
-          results: resultsCount,
-          attendance: attendanceCount,
+          students: totalStudents,
+          classes: teacher.classes.length,
+          results: teacher.results.length,
+          attendance: 0,
         },
-        classes: teacher.classes,
+        classes: teacher.classes.map((item) => ({
+          id: item.id,
+          name: item.name,
+        })),
       })
     } catch (error: any) {
-      console.error("GET /teachers/me/summary error:", error)
+      console.error("GET TEACHER SUMMARY ERROR:", error)
       return res.status(500).json({
         message: "Failed to fetch teacher summary",
         error: error.message,
@@ -109,17 +159,21 @@ router.get(
   }
 )
 
+// =======================
+// GET ONE TEACHER
+// =======================
 router.get(
   "/:id",
   authMiddleware,
-  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
-  requireSchoolUser,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
 
       if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid teacher id" })
+        return res.status(400).json({
+          message: "Invalid teacher id",
+        })
       }
 
       const teacher = await prisma.teacher.findUnique({
@@ -132,248 +186,304 @@ router.get(
             include: {
               student: true,
               subject: true,
-              school: true,
-            },
-            orderBy: {
-              createdAt: "desc",
             },
           },
         },
       })
 
       if (!teacher) {
-        return res.status(404).json({ message: "Teacher not found" })
+        return res.status(404).json({
+          message: "Teacher not found",
+        })
       }
 
-      enforceSameSchool(req, teacher.schoolId)
+      if (
+        req.user?.role === "SCHOOL_ADMIN" &&
+        teacher.schoolId !== req.user.schoolId
+      ) {
+        return res.status(403).json({
+          message: "Forbidden",
+        })
+      }
 
       return res.status(200).json(teacher)
     } catch (error: any) {
-      console.error("GET /teachers/:id error:", error)
-      return res.status(error.message === "Forbidden" ? 403 : 500).json({
-        message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to fetch teacher",
+      console.error("GET ONE TEACHER ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to fetch teacher",
         error: error.message,
       })
     }
   }
 )
 
+// =======================
+// CREATE TEACHER
+// =======================
 router.post(
   "/create",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, email, phone, subject, schoolId, userId } = req.body
+      const { name, email, password, phone, subject, schoolId } = req.body
 
-      if (!name || !email || !userId) {
+      if (!name || !email || !password) {
         return res.status(400).json({
-          message: "name, email and userId are required",
+          message: "name, email and password are required",
         })
       }
 
-      const parsedUserId = Number(userId)
-
-      if (isNaN(parsedUserId)) {
-        return res.status(400).json({ message: "Invalid userId" })
-      }
-
-      let parsedSchoolId: number
+      let resolvedSchoolId: number
 
       if (req.user?.role === "SUPER_ADMIN") {
-        parsedSchoolId = Number(schoolId)
+        resolvedSchoolId = Number(schoolId)
 
-        if (isNaN(parsedSchoolId)) {
+        if (isNaN(resolvedSchoolId)) {
           return res.status(400).json({
-            message: "schoolId is required for super admin",
+            message: "Valid schoolId is required for super admin",
           })
         }
       } else {
-        parsedSchoolId = req.user!.schoolId!
+        if (!req.user?.schoolId) {
+          return res.status(400).json({
+            message: "No school assigned to this admin",
+          })
+        }
+
+        resolvedSchoolId = req.user.schoolId
       }
 
-      const existingSchool = await prisma.school.findUnique({
-        where: { id: parsedSchoolId },
+      const school = await prisma.school.findUnique({
+        where: { id: resolvedSchoolId },
       })
 
-      if (!existingSchool) {
-        return res.status(404).json({ message: "School not found" })
+      if (!school) {
+        return res.status(404).json({
+          message: "School not found",
+        })
       }
 
       const existingUser = await prisma.user.findUnique({
-        where: { id: parsedUserId },
-      })
-
-      if (!existingUser) {
-        return res.status(404).json({ message: "User not found" })
-      }
-
-      if (existingUser.role !== "TEACHER") {
-        return res.status(400).json({
-          message: "Selected user must have TEACHER role",
-        })
-      }
-
-      enforceSameSchool(req, existingUser.schoolId)
-
-      const existingTeacherByUser = await prisma.teacher.findUnique({
-        where: { userId: parsedUserId },
-      })
-
-      if (existingTeacherByUser) {
-        return res.status(400).json({
-          message: "This user is already linked to a teacher profile",
-        })
-      }
-
-      const existingTeacherByEmail = await prisma.teacher.findUnique({
         where: { email },
       })
 
-      if (existingTeacherByEmail) {
+      if (existingUser) {
         return res.status(400).json({
-          message: "A teacher with this email already exists",
+          message: "A user with this email already exists",
         })
       }
 
-      const teacher = await prisma.teacher.create({
-        data: {
-          name,
-          email,
-          phone: phone || null,
-          subject: subject || null,
-          schoolId: parsedSchoolId,
-          userId: parsedUserId,
-        },
-        include: {
-          school: true,
-          user: true,
-          classes: true,
-          results: true,
-        },
+      const hashedPassword = await bcrypt.hash(password, 10)
+
+      const result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            name,
+            email,
+            password: hashedPassword,
+            role: "TEACHER",
+            schoolId: resolvedSchoolId,
+          },
+        })
+
+        const teacher = await tx.teacher.create({
+          data: {
+            userId: user.id,
+            schoolId: resolvedSchoolId,
+            name,
+            email,
+            phone: phone || null,
+            subject: subject || null,
+          },
+          include: {
+            school: true,
+            user: true,
+          },
+        })
+
+        await tx.notification.create({
+          data: {
+            title: "Teacher Created",
+            message: `${name} was added as a teacher successfully.`,
+            userId: req.user!.id,
+          },
+        })
+
+        return teacher
       })
 
-      return res.status(201).json(teacher)
+      return res.status(201).json(result)
     } catch (error: any) {
-      console.error("POST /teachers/create error:", error)
-      return res.status(error.message === "Forbidden" ? 403 : 500).json({
-        message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to create teacher",
+      console.error("CREATE TEACHER ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to create teacher",
         error: error.message,
       })
     }
   }
 )
 
+// =======================
+// UPDATE TEACHER
+// =======================
 router.put(
   "/:id",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
       const { name, email, phone, subject } = req.body
 
       if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid teacher id" })
+        return res.status(400).json({
+          message: "Invalid teacher id",
+        })
       }
 
       const existingTeacher = await prisma.teacher.findUnique({
         where: { id },
+        include: {
+          user: true,
+        },
       })
 
       if (!existingTeacher) {
-        return res.status(404).json({ message: "Teacher not found" })
+        return res.status(404).json({
+          message: "Teacher not found",
+        })
       }
 
-      enforceSameSchool(req, existingTeacher.schoolId)
+      if (
+        req.user?.role === "SCHOOL_ADMIN" &&
+        existingTeacher.schoolId !== req.user.schoolId
+      ) {
+        return res.status(403).json({
+          message: "Forbidden",
+        })
+      }
 
       if (email && email !== existingTeacher.email) {
-        const emailTaken = await prisma.teacher.findUnique({
+        const duplicateUser = await prisma.user.findUnique({
           where: { email },
         })
 
-        if (emailTaken) {
+        if (duplicateUser && duplicateUser.id !== existingTeacher.userId) {
           return res.status(400).json({
-            message: "A teacher with this email already exists",
+            message: "Another user with this email already exists",
           })
         }
       }
 
-      const teacher = await prisma.teacher.update({
-        where: { id },
-        data: {
-          name: name ?? existingTeacher.name,
-          email: email ?? existingTeacher.email,
-          phone: phone ?? existingTeacher.phone,
-          subject: subject ?? existingTeacher.subject,
-        },
-        include: {
-          school: true,
-          user: true,
-          classes: true,
-          results: true,
-        },
+      const updatedTeacher = await prisma.$transaction(async (tx) => {
+        const teacher = await tx.teacher.update({
+          where: { id },
+          data: {
+            name: name ?? existingTeacher.name,
+            email: email ?? existingTeacher.email,
+            phone: phone ?? existingTeacher.phone,
+            subject: subject ?? existingTeacher.subject,
+          },
+          include: {
+            school: true,
+            user: true,
+            classes: true,
+          },
+        })
+
+        await tx.user.update({
+          where: { id: existingTeacher.userId },
+          data: {
+            name: name ?? existingTeacher.user.name,
+            email: email ?? existingTeacher.user.email,
+          },
+        })
+
+        return teacher
       })
 
-      return res.status(200).json(teacher)
+      return res.status(200).json(updatedTeacher)
     } catch (error: any) {
-      console.error("PUT /teachers/:id error:", error)
-      return res.status(error.message === "Forbidden" ? 403 : 500).json({
-        message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to update teacher",
+      console.error("UPDATE TEACHER ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to update teacher",
         error: error.message,
       })
     }
   }
 )
 
+// =======================
+// DELETE TEACHER
+// =======================
 router.delete(
   "/:id",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
 
       if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid teacher id" })
+        return res.status(400).json({
+          message: "Invalid teacher id",
+        })
       }
 
-      const existingTeacher = await prisma.teacher.findUnique({
+      const teacher = await prisma.teacher.findUnique({
         where: { id },
       })
 
-      if (!existingTeacher) {
-        return res.status(404).json({ message: "Teacher not found" })
+      if (!teacher) {
+        return res.status(404).json({
+          message: "Teacher not found",
+        })
       }
 
-      enforceSameSchool(req, existingTeacher.schoolId)
+      if (
+        req.user?.role === "SCHOOL_ADMIN" &&
+        teacher.schoolId !== req.user.schoolId
+      ) {
+        return res.status(403).json({
+          message: "Forbidden",
+        })
+      }
 
-      await prisma.teacher.delete({
-        where: { id },
+      const linkedClasses = await prisma.class.findMany({
+        where: {
+          teacherId: teacher.id,
+        },
+      })
+
+      if (linkedClasses.length > 0) {
+        await prisma.class.updateMany({
+          where: {
+            teacherId: teacher.id,
+          },
+          data: {
+            teacherId: null,
+          },
+        })
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.teacher.delete({
+          where: { id: teacher.id },
+        })
+
+        await tx.user.delete({
+          where: { id: teacher.userId },
+        })
       })
 
       return res.status(200).json({
         message: "Teacher deleted successfully",
       })
     } catch (error: any) {
-      console.error("DELETE /teachers/:id error:", error)
-      return res.status(error.message === "Forbidden" ? 403 : 500).json({
-        message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to delete teacher",
+      console.error("DELETE TEACHER ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to delete teacher",
         error: error.message,
       })
     }

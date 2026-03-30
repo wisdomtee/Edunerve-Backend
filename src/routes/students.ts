@@ -1,7 +1,7 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
-import { authorizeRoles } from "../middleware/authorize"
+import { authorizeRoles } from "../middleware/authorizeRoles"
 import upload from "../middleware/upload"
 import {
   requireSchoolUser,
@@ -10,6 +10,16 @@ import {
 } from "../middleware/school"
 
 const router = Router()
+
+function getOrdinal(position: number) {
+  const mod10 = position % 10
+  const mod100 = position % 100
+
+  if (mod10 === 1 && mod100 !== 11) return `${position}st`
+  if (mod10 === 2 && mod100 !== 12) return `${position}nd`
+  if (mod10 === 3 && mod100 !== 13) return `${position}rd`
+  return `${position}th`
+}
 
 router.get(
   "/",
@@ -21,21 +31,207 @@ router.get(
       const students = await prisma.student.findMany({
         where: getSchoolFilter(req),
         include: {
-          school: true,
-          class: true,
-          results: true,
-          attendances: true,
+          school: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          class: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          parent: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          results: {
+            include: {
+              subject: true,
+              teacher: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+          attendance: {
+            orderBy: {
+              date: "desc",
+            },
+          },
         },
         orderBy: {
           createdAt: "desc",
         },
       })
 
-      return res.status(200).json(students)
+      const formattedStudents = students.map((student) => ({
+        id: student.id,
+        name: student.name,
+        gender: student.gender,
+        parentId: student.parentId,
+        classId: student.classId,
+        schoolId: student.schoolId,
+        createdAt: student.createdAt,
+        updatedAt: student.updatedAt,
+        school: student.school,
+        class: student.class,
+        parent: student.parent,
+        attendance: student.attendance,
+        results: student.results,
+      }))
+
+      return res.status(200).json(formattedStudents)
     } catch (error: any) {
       console.error("GET STUDENTS ERROR:", error)
       return res.status(500).json({
         message: "Failed to fetch students",
+        error: error.message,
+      })
+    }
+  }
+)
+
+router.get(
+  "/parents",
+  authMiddleware,
+  authorizeRoles("SCHOOL_ADMIN", "SUPER_ADMIN"),
+  requireSchoolUser,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const parents = await prisma.parent.findMany({
+        where:
+          req.user?.role === "SUPER_ADMIN"
+            ? getSchoolFilter(req)
+            : { schoolId: req.user!.schoolId! },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          schoolId: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      })
+
+      return res.json(parents)
+    } catch (error: any) {
+      console.error("GET PARENTS ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to fetch parents",
+        error: error.message,
+      })
+    }
+  }
+)
+
+router.get(
+  "/:id/ranking",
+  authMiddleware,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
+  requireSchoolUser,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const id = Number(req.params.id)
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid student id" })
+      }
+
+      const student = await prisma.student.findUnique({
+        where: { id },
+        include: {
+          class: true,
+        },
+      })
+
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" })
+      }
+
+      enforceSameSchool(req, student.schoolId)
+
+      if (!student.classId) {
+        return res.status(200).json({
+          studentId: student.id,
+          studentName: student.name,
+          classId: null,
+          className: null,
+          averageScore: 0,
+          position: null,
+          positionText: "—",
+          totalStudents: 0,
+          ranking: [],
+          message: "Student is not assigned to any class",
+        })
+      }
+
+      const classmates = await prisma.student.findMany({
+        where: {
+          classId: student.classId,
+          schoolId: student.schoolId,
+        },
+        include: {
+          results: true,
+        },
+      })
+
+      const ranking = classmates
+        .map((classmate) => {
+          const totalScore = classmate.results.reduce(
+            (sum, result) => sum + Number(result.score || 0),
+            0
+          )
+
+          const averageScore =
+            classmate.results.length > 0
+              ? totalScore / classmate.results.length
+              : 0
+
+          return {
+            id: classmate.id,
+            name: classmate.name,
+            studentId: classmate.id,
+            averageScore: Number(averageScore.toFixed(2)),
+          }
+        })
+        .sort((a, b) => {
+          if (b.averageScore !== a.averageScore) {
+            return b.averageScore - a.averageScore
+          }
+
+          return a.name.localeCompare(b.name)
+        })
+
+      const position = ranking.findIndex((item) => item.id === student.id) + 1
+      const currentStudent = ranking.find((item) => item.id === student.id)
+
+      return res.status(200).json({
+        studentId: student.id,
+        studentName: student.name,
+        classId: student.classId,
+        className: student.class?.name || null,
+        averageScore: currentStudent?.averageScore || 0,
+        position: position || null,
+        positionText: position ? getOrdinal(position) : "—",
+        totalStudents: ranking.length,
+        ranking,
+      })
+    } catch (error: any) {
+      console.error("GET STUDENT RANKING ERROR:", error)
+      return res.status(error.message === "Forbidden" ? 403 : 500).json({
+        message:
+          error.message === "Forbidden"
+            ? "Forbidden"
+            : "Failed to calculate ranking",
         error: error.message,
       })
     }
@@ -58,8 +254,25 @@ router.get(
       const student = await prisma.student.findUnique({
         where: { id },
         include: {
-          school: true,
-          class: true,
+          school: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          class: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          parent: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
           results: {
             include: {
               subject: true,
@@ -67,7 +280,7 @@ router.get(
             },
             orderBy: { createdAt: "desc" },
           },
-          attendances: {
+          attendance: {
             orderBy: { date: "desc" },
           },
         },
@@ -79,7 +292,21 @@ router.get(
 
       enforceSameSchool(req, student.schoolId)
 
-      return res.json(student)
+      return res.json({
+        id: student.id,
+        name: student.name,
+        gender: student.gender,
+        parentId: student.parentId,
+        classId: student.classId,
+        schoolId: student.schoolId,
+        createdAt: student.createdAt,
+        updatedAt: student.updatedAt,
+        school: student.school,
+        class: student.class,
+        parent: student.parent,
+        attendance: student.attendance,
+        results: student.results,
+      })
     } catch (error: any) {
       console.error("GET STUDENT ERROR:", error)
       return res.status(error.message === "Forbidden" ? 403 : 500).json({
@@ -100,21 +327,11 @@ router.post(
   requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, studentId, classId, gender } = req.body
+      const { name, classId, gender } = req.body
 
-      if (!name || !studentId || !classId) {
+      if (!name || !classId) {
         return res.status(400).json({
-          message: "name, studentId and classId are required",
-        })
-      }
-
-      const existingStudent = await prisma.student.findFirst({
-        where: { studentId },
-      })
-
-      if (existingStudent) {
-        return res.status(400).json({
-          message: "StudentId already exists",
+          message: "name and classId are required",
         })
       }
 
@@ -137,14 +354,30 @@ router.post(
       const student = await prisma.student.create({
         data: {
           name,
-          studentId,
           classId: Number(classId),
           schoolId: req.user!.schoolId!,
           gender: gender || null,
         },
         include: {
-          class: true,
-          school: true,
+          class: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          school: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          parent: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       })
 
@@ -170,6 +403,101 @@ router.post(
 )
 
 router.put(
+  "/assign-parent/:studentId",
+  authMiddleware,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
+  requireSchoolUser,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const studentId = Number(req.params.studentId)
+      const { parentId } = req.body
+
+      if (isNaN(studentId) || !parentId) {
+        return res.status(400).json({
+          message: "Valid studentId and parentId are required",
+        })
+      }
+
+      const student = await prisma.student.findUnique({
+        where: { id: studentId },
+      })
+
+      if (!student) {
+        return res.status(404).json({
+          message: "Student not found",
+        })
+      }
+
+      enforceSameSchool(req, student.schoolId)
+
+      const parent = await prisma.parent.findUnique({
+        where: { id: Number(parentId) },
+      })
+
+      if (!parent) {
+        return res.status(404).json({
+          message: "Parent not found",
+        })
+      }
+
+      if (
+        req.user?.role === "SCHOOL_ADMIN" &&
+        parent.schoolId !== req.user!.schoolId
+      ) {
+        return res.status(403).json({
+          message: "You can only assign parents from your school",
+        })
+      }
+
+      if (student.schoolId !== parent.schoolId) {
+        return res.status(403).json({
+          message: "Student and parent must belong to the same school",
+        })
+      }
+
+      const updatedStudent = await prisma.student.update({
+        where: { id: studentId },
+        data: {
+          parentId: Number(parentId),
+        },
+        include: {
+          parent: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          class: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          school: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      })
+
+      return res.json({
+        message: "Parent assigned successfully",
+        student: updatedStudent,
+      })
+    } catch (error: any) {
+      console.error("ASSIGN PARENT ERROR:", error)
+      return res.status(500).json({
+        message: "Failed to assign parent",
+        error: error.message,
+      })
+    }
+  }
+)
+
+router.put(
   "/:id",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN"),
@@ -177,7 +505,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
-      const { name, studentId, gender } = req.body
+      const { name, gender, classId, parentId } = req.body
 
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid student id" })
@@ -193,12 +521,77 @@ router.put(
 
       enforceSameSchool(req, existingStudent.schoolId)
 
+      let resolvedClassId = existingStudent.classId
+      let resolvedParentId = existingStudent.parentId
+
+      if (classId !== undefined && classId !== null && classId !== "") {
+        const classRecord = await prisma.class.findUnique({
+          where: { id: Number(classId) },
+        })
+
+        if (!classRecord) {
+          return res.status(404).json({ message: "Class not found" })
+        }
+
+        if (classRecord.schoolId !== req.user!.schoolId) {
+          return res.status(403).json({
+            message: "You can only assign classes in your school",
+          })
+        }
+
+        resolvedClassId = Number(classId)
+      }
+
+      if (parentId !== undefined) {
+        if (parentId === null || parentId === "") {
+          resolvedParentId = null
+        } else {
+          const parent = await prisma.parent.findUnique({
+            where: { id: Number(parentId) },
+          })
+
+          if (!parent) {
+            return res.status(404).json({ message: "Parent not found" })
+          }
+
+          if (parent.schoolId !== req.user!.schoolId) {
+            return res.status(403).json({
+              message: "You can only assign parents in your school",
+            })
+          }
+
+          resolvedParentId = Number(parentId)
+        }
+      }
+
       const student = await prisma.student.update({
         where: { id },
         data: {
           name: name ?? existingStudent.name,
-          studentId: studentId ?? existingStudent.studentId,
           gender: gender ?? existingStudent.gender,
+          classId: resolvedClassId,
+          parentId: resolvedParentId,
+        },
+        include: {
+          parent: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          class: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          school: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       })
 
@@ -265,37 +658,13 @@ router.post(
   upload.single("photo"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const id = Number(req.params.id)
-
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" })
-      }
-
-      const student = await prisma.student.findUnique({
-        where: { id },
+      return res.status(400).json({
+        message: "Photo field is not available in the current Student model",
       })
-
-      if (!student) {
-        return res.status(404).json({ message: "Student not found" })
-      }
-
-      enforceSameSchool(req, student.schoolId)
-
-      const updated = await prisma.student.update({
-        where: { id },
-        data: {
-          photo: req.file.path,
-        },
-      })
-
-      return res.json(updated)
     } catch (error: any) {
       console.error("UPLOAD PHOTO ERROR:", error)
-      return res.status(error.message === "Forbidden" ? 403 : 500).json({
-        message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to upload photo",
+      return res.status(500).json({
+        message: "Failed to upload photo",
         error: error.message,
       })
     }
@@ -309,35 +678,13 @@ router.put(
   requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
-      const id = Number(req.params.id)
-      const { teacherRemark, principalRemark } = req.body
-
-      const student = await prisma.student.findUnique({
-        where: { id },
+      return res.status(400).json({
+        message: "Remarks fields are not available in the current Student model",
       })
-
-      if (!student) {
-        return res.status(404).json({ message: "Student not found" })
-      }
-
-      enforceSameSchool(req, student.schoolId)
-
-      const updated = await prisma.student.update({
-        where: { id },
-        data: {
-          teacherRemark,
-          principalRemark,
-        },
-      })
-
-      return res.json(updated)
     } catch (error: any) {
       console.error("SAVE REMARKS ERROR:", error)
-      return res.status(error.message === "Forbidden" ? 403 : 500).json({
-        message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to save remarks",
+      return res.status(500).json({
+        message: "Failed to save remarks",
         error: error.message,
       })
     }

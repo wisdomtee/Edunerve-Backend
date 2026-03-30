@@ -2,6 +2,8 @@ import express from "express"
 import cors from "cors"
 import dotenv from "dotenv"
 import path from "path"
+import http from "http"
+import { Server } from "socket.io"
 
 import authRouter from "./routes/auth"
 import studentsRouter from "./routes/students"
@@ -17,10 +19,16 @@ import subjectRoutes from "./routes/subject"
 import analyticsRoutes from "./routes/analytics"
 import notificationRoutes from "./routes/notifications"
 import teacherDashboardRoutes from "./routes/teacherDashboard"
+import parentPortalRoutes from "./routes/parentPortal"
+import parentRoutes from "./routes/parent"
+import feesRoutes from "./routes/fees"
+import createMessageRoutes from "./routes/messages"
+import userRoutes from "./routes/users"
 
 dotenv.config()
 
 const app = express()
+const server = http.createServer(app)
 const PORT = process.env.PORT || 5000
 
 const allowedOrigins = [
@@ -29,6 +37,27 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
 ].filter(Boolean) as string[]
+
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+  },
+})
+
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id)
+
+  socket.on("join", (userId: number) => {
+    if (!userId) return
+    socket.join(`user_${userId}`)
+    console.log(`User ${userId} joined room user_${userId}`)
+  })
+
+  socket.on("disconnect", () => {
+    console.log("Socket disconnected:", socket.id)
+  })
+})
 
 app.use(
   cors({
@@ -70,6 +99,11 @@ app.use("/subjects", subjectRoutes)
 app.use("/analytics", analyticsRoutes)
 app.use("/notifications", notificationRoutes)
 app.use("/teacher", teacherDashboardRoutes)
+app.use("/parent-portal", parentPortalRoutes)
+app.use("/parents", parentRoutes)
+app.use("/fees", feesRoutes)
+app.use("/messages", createMessageRoutes(io))
+app.use("/users", userRoutes)
 
 app.use(
   (
@@ -93,7 +127,7 @@ app.use(
   }
 )
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`)
   console.log("Allowed origins:", allowedOrigins)
 })

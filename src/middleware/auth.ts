@@ -6,6 +6,7 @@ export type UserRole =
   | "SCHOOL_ADMIN"
   | "TEACHER"
   | "PARENT"
+  | "STUDENT"
 
 export interface AuthUser {
   id: number
@@ -37,9 +38,17 @@ export const authMiddleware = (
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET as string
-    ) as AuthUser
+    ) as jwt.JwtPayload
 
-    req.user = decoded
+    req.user = {
+      id: Number(decoded.id),
+      email: String(decoded.email),
+      role: decoded.role as UserRole,
+      schoolId:
+        decoded.schoolId !== undefined && decoded.schoolId !== null
+          ? Number(decoded.schoolId)
+          : null,
+    }
 
     next()
   } catch (error) {

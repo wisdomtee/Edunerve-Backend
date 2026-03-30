@@ -3,6 +3,7 @@ enum Role {
   SCHOOL_ADMIN
   TEACHER
   PARENT
+  STUDENT
 }
 
 generator client {
@@ -15,21 +16,22 @@ datasource db {
 }
 
 model User {
-  id       Int     @id @default(autoincrement())
-  name     String
-  email    String  @unique
-  password String
-  role     Role // or enum Role
-  schoolId Int?
-  school   School? @relation(fields: [schoolId], references: [id])
-
-  teacher Teacher?
-  parent  Parent?
-
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      String
+  schoolId  Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  notifications Notification[]
+  school School? @relation(fields: [schoolId], references: [id])
+
+  parents          Parent[]
+  teacherProfile   Teacher?
+  notifications    Notification[]
+  sentMessages     Message[]      @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
 }
 
 model Admin {
@@ -56,6 +58,8 @@ model School {
   classes  Class[]
   subjects Subject[]
   results  Result[]
+  fees     Fee[]
+  messages Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -70,42 +74,39 @@ model Subject {
 }
 
 model Parent {
-  id       Int    @id @default(autoincrement())
-  userId   Int    @unique
+  id       Int @id @default(autoincrement())
+  userId   Int @unique
   schoolId Int
-  user     User   @relation(fields: [userId], references: [id])
-  school   School @relation(fields: [schoolId], references: [id])
 
-  name     String
-  email    String    @unique
-  phone    String?
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school   School    @relation(fields: [schoolId], references: [id])
   students Student[]
+
+  name  String
+  email String  @unique
+  phone String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Student {
-  id              Int     @id @default(autoincrement())
-  name            String
-  studentId       String  @unique
-  classId         Int?
-  schoolId        Int
-  parentId        Int?
-  gender          String?
-  photo           String?
-  teacherRemark   String?
-  principalRemark String?
-
-  class  Class?  @relation(fields: [classId], references: [id])
-  school School  @relation(fields: [schoolId], references: [id])
-  parent Parent? @relation(fields: [parentId], references: [id])
-
-  results     Result[]
-  attendances Attendance[]
-
+  id        Int      @id @default(autoincrement())
+  name      String
+  studentId String   @unique
+  classId   Int?
+  schoolId  Int?
+  parentId  Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  class  Class?  @relation(fields: [classId], references: [id])
+  school School? @relation(fields: [schoolId], references: [id])
+  parent Parent? @relation(fields: [parentId], references: [id])
+
+  attendance Attendance[]
+  results    Result[]
+  fees       Fee[]
 }
 
 model Class {
@@ -173,11 +174,47 @@ model Result {
 
 model Notification {
   id        Int      @id @default(autoincrement())
+  userId    Int
   title     String
   message   String
-  userId    Int
-  read      Boolean  @default(false)
+  isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model Fee {
+  id        Int       @id @default(autoincrement())
+  title     String
+  amount    Float
+  status    String    @default("pending")
+  dueDate   DateTime?
+  paidAt    DateTime?
+  studentId Int
+  schoolId  Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  subject    String?
+  content    String
+  isRead     Boolean  @default(false)
+  senderId   Int
+  receiverId Int
+  schoolId   Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sender   User    @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User    @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  school   School? @relation(fields: [schoolId], references: [id])
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([schoolId])
 }
