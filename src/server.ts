@@ -34,39 +34,37 @@ const PORT = process.env.PORT || 5000
 const allowedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  process.env.FRONTEND_URL,
-  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+  "https://edunerve-frontend.vercel.app", // ✅ your production frontend
+  process.env.FRONTEND_URL, // optional custom domain
 ].filter(Boolean) as string[]
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true)
+
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app") // ✅ allow all vercel previews
+      ) {
+        return callback(null, true)
+      }
+
+      return callback(new Error("Not allowed by Socket CORS"))
+    },
     credentials: true,
   },
-})
-
-io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id)
-
-  socket.on("join", (userId: number) => {
-    if (!userId) return
-    socket.join(`user_${userId}`)
-    console.log(`User ${userId} joined room user_${userId}`)
-  })
-
-  socket.on("disconnect", () => {
-    console.log("Socket disconnected:", socket.id)
-  })
 })
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) {
-        return callback(null, true)
-      }
+      if (!origin) return callback(null, true)
 
-      if (allowedOrigins.includes(origin)) {
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith(".vercel.app") // ✅ allow preview deployments
+      ) {
         return callback(null, true)
       }
 
