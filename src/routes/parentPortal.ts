@@ -1,7 +1,7 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
-import { authorizeRoles } from "../middleware/authorize"
+import { authorizeRoles } from "../middleware/authorizeRoles"
 
 const router = Router()
 
@@ -31,11 +31,24 @@ router.get(
 
       const currentUser = await prisma.user.findUnique({
         where: { id: req.user.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          schoolId: true,
+          role: true,
+        },
       })
 
       if (!currentUser) {
         return res.status(404).json({
           message: "User not found",
+        })
+      }
+
+      if (currentUser.role !== "PARENT") {
+        return res.status(403).json({
+          message: "Access denied",
         })
       }
 
@@ -70,7 +83,6 @@ router.get(
         },
       })
 
-      // Auto-create parent profile if missing
       if (!parent) {
         if (!currentUser.schoolId) {
           return res.status(400).json({
@@ -147,7 +159,7 @@ router.get(
             const classmates = await prisma.student.findMany({
               where: {
                 classId: student.classId,
-                schoolId: student.schoolId ?? undefined,
+                schoolId: student.schoolId,
               },
               include: {
                 results: true,
@@ -181,7 +193,8 @@ router.get(
                 return a.name.localeCompare(b.name)
               })
 
-            const position = ranked.findIndex((item) => item.id === student.id) + 1
+            const position =
+              ranked.findIndex((item) => item.id === student.id) + 1
 
             ranking = {
               position: position || null,

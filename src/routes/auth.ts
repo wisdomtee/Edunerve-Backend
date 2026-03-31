@@ -15,8 +15,10 @@ router.post("/login", async (req, res) => {
       })
     }
 
+    const normalizedEmail = String(email).trim().toLowerCase()
+
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
       select: {
         id: true,
         name: true,
@@ -41,6 +43,12 @@ router.post("/login", async (req, res) => {
       })
     }
 
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        message: "JWT secret is not configured",
+      })
+    }
+
     const token = jwt.sign(
       {
         id: user.id,
@@ -48,7 +56,7 @@ router.post("/login", async (req, res) => {
         role: user.role,
         schoolId: user.schoolId ?? null,
       },
-      process.env.JWT_SECRET as string,
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     )
 
