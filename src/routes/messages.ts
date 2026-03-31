@@ -80,6 +80,10 @@ export default function createMessageRoutes(io: Server) {
         return res.status(401).json({ message: "Unauthorized" })
       }
 
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid message id" })
+      }
+
       const message = await prisma.message.findUnique({
         where: { id },
       })
@@ -396,11 +400,29 @@ export default function createMessageRoutes(io: Server) {
 
       const receiver = await prisma.user.findUnique({
         where: { id: Number(receiverId) },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          schoolId: true,
+        },
       })
 
       if (!receiver) {
         return res.status(404).json({ message: "Receiver not found" })
       }
+
+      const sender = await prisma.user.findUnique({
+        where: { id: senderId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          schoolId: true,
+        },
+      })
 
       const newMessage = await prisma.message.create({
         data: {
@@ -432,7 +454,27 @@ export default function createMessageRoutes(io: Server) {
         },
       })
 
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: Number(receiverId),
+            title: "New Message",
+            message: `${sender?.name || "Someone"} sent you a message`,
+          },
+        })
+      } catch (notificationError) {
+        console.error("Notification creation error:", notificationError)
+      }
+
       io.to(`user_${Number(receiverId)}`).emit("new_message", newMessage)
+
+      io.to(`user_${Number(receiverId)}`).emit("notification", {
+        type: "MESSAGE",
+        title: "New Message",
+        message: `${sender?.name || "Someone"} sent you a message`,
+        href: "/dashboard/messages",
+        time: "Just now",
+      })
 
       return res.status(201).json(newMessage)
     } catch (error) {
