@@ -1,13 +1,10 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
-import { authorizeRoles } from "../middleware/authorizeRoles"
+import { authorizeRoles } from "../middleware/authorize"
+import { requireActiveSubscription } from "../middleware/subscription"
 import upload from "../middleware/upload"
-import {
-  requireSchoolUser,
-  enforceSameSchool,
-  getSchoolFilter,
-} from "../middleware/school"
+import { enforceSameSchool } from "../middleware/school"
 
 const router = Router()
 
@@ -21,15 +18,94 @@ function getOrdinal(position: number) {
   return `${position}th`
 }
 
+async function getTeacherProfile(req: AuthRequest) {
+  if (!req.user || req.user.role !== "TEACHER") return null
+
+  const teacher = await prisma.teacher.findUnique({
+    where: { userId: req.user.id },
+    select: {
+      id: true,
+      schoolId: true,
+    },
+  })
+
+  return teacher
+}
+
+async function getParentProfile(req: AuthRequest) {
+  if (!req.user || req.user.role !== "PARENT") return null
+
+  const parent = await prisma.parent.findUnique({
+    where: { userId: req.user.id },
+    select: {
+      id: true,
+      schoolId: true,
+    },
+  })
+
+  return parent
+}
+
+async function getStudentWhereClause(req: AuthRequest) {
+  if (!req.user) {
+    throw new Error("Unauthorized")
+  }
+
+  if (req.user.role === "SUPER_ADMIN") {
+    return {}
+  }
+
+  if (req.user.role === "TEACHER") {
+    const teacher = await getTeacherProfile(req)
+
+    if (!teacher) {
+      return {
+        id: -1,
+      }
+    }
+
+    return {
+      schoolId: teacher.schoolId,
+      class: {
+        teacherId: teacher.id,
+      },
+    }
+  }
+
+  if (req.user.role === "PARENT") {
+    const parent = await getParentProfile(req)
+
+    if (!parent) {
+      return {
+        id: -1,
+      }
+    }
+
+    return {
+      schoolId: parent.schoolId,
+      parentId: parent.id,
+    }
+  }
+
+  if (req.user.schoolId === null || req.user.schoolId === undefined) {
+    throw new Error("Forbidden")
+  }
+
+  return {
+    schoolId: req.user.schoolId,
+  }
+}
+
 router.get(
   "/",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
+      const where = await getStudentWhereClause(req)
+
       const students = await prisma.student.findMany({
-        where: getSchoolFilter(req),
+        where,
         include: {
           school: {
             select: {
@@ -41,6 +117,7 @@ router.get(
             select: {
               id: true,
               name: true,
+              teacherId: true,
             },
           },
           parent: {
@@ -89,8 +166,19 @@ router.get(
       return res.status(200).json(formattedStudents)
     } catch (error: any) {
       console.error("GET STUDENTS ERROR:", error)
-      return res.status(500).json({
-        message: "Failed to fetch students",
+      return res.status(
+        error.message === "Unauthorized"
+          ? 401
+          : error.message === "Forbidden"
+          ? 403
+          : 500
+      ).json({
+        message:
+          error.message === "Unauthorized"
+            ? "Unauthorized"
+            : error.message === "Forbidden"
+            ? "Forbidden"
+            : "Failed to fetch students",
         error: error.message,
       })
     }
@@ -100,15 +188,33 @@ router.get(
 router.get(
   "/parents",
   authMiddleware,
-  authorizeRoles("SCHOOL_ADMIN", "SUPER_ADMIN"),
-  requireSchoolUser,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
+      if (!req.user) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        })
+      }
+
+      let where: any = {}
+
+      if (req.user.role === "SUPER_ADMIN") {
+        where = {}
+      } else {
+        if (req.user.schoolId === null || req.user.schoolId === undefined) {
+          return res.status(403).json({
+            message: "Forbidden",
+          })
+        }
+
+        where = {
+          schoolId: req.user.schoolId,
+        }
+      }
+
       const parents = await prisma.parent.findMany({
-        where:
-          req.user?.role === "SUPER_ADMIN"
-            ? getSchoolFilter(req)
-            : { schoolId: req.user?.schoolId },
+        where,
         select: {
           id: true,
           name: true,
@@ -122,7 +228,7 @@ router.get(
         },
       })
 
-      return res.json(parents)
+      return res.status(200).json(parents)
     } catch (error: any) {
       console.error("GET PARENTS ERROR:", error)
       return res.status(500).json({
@@ -137,7 +243,6 @@ router.get(
   "/:id/ranking",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
@@ -158,6 +263,22 @@ router.get(
       }
 
       enforceSameSchool(req, student.schoolId)
+
+      if (req.user?.role === "TEACHER") {
+        const teacher = await getTeacherProfile(req)
+
+        if (!teacher || student.class?.teacherId !== teacher.id) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
+
+      if (req.user?.role === "PARENT") {
+        const parent = await getParentProfile(req)
+
+        if (!parent || student.parentId !== parent.id) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
 
       if (!student.classId) {
         return res.status(200).json({
@@ -199,7 +320,7 @@ router.get(
           return {
             id: classmate.id,
             name: classmate.name,
-            studentId: classmate.id,
+            studentId: classmate.studentId,
             averageScore: Number(averageScore.toFixed(2)),
           }
         })
@@ -242,7 +363,6 @@ router.get(
   "/:id",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
@@ -264,6 +384,7 @@ router.get(
             select: {
               id: true,
               name: true,
+              teacherId: true,
             },
           },
           parent: {
@@ -292,7 +413,23 @@ router.get(
 
       enforceSameSchool(req, student.schoolId)
 
-      return res.json({
+      if (req.user?.role === "TEACHER") {
+        const teacher = await getTeacherProfile(req)
+
+        if (!teacher || student.class?.teacherId !== teacher.id) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
+
+      if (req.user?.role === "PARENT") {
+        const parent = await getParentProfile(req)
+
+        if (!parent || student.parentId !== parent.id) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
+
+      return res.status(200).json({
         id: student.id,
         name: student.name,
         studentId: student.studentId,
@@ -323,11 +460,16 @@ router.get(
 router.post(
   "/create",
   authMiddleware,
-  authorizeRoles("SCHOOL_ADMIN"),
-  requireSchoolUser,
+  authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, classId } = req.body
+      const { name, classId, parentId, studentId } = req.body
+
+      if (!req.user) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        })
+      }
 
       if (!name || !classId) {
         return res.status(400).json({
@@ -335,8 +477,15 @@ router.post(
         })
       }
 
+      const parsedClassId = Number(classId)
+      if (isNaN(parsedClassId)) {
+        return res.status(400).json({
+          message: "Valid classId is required",
+        })
+      }
+
       const classRecord = await prisma.class.findUnique({
-        where: { id: Number(classId) },
+        where: { id: parsedClassId },
       })
 
       if (!classRecord) {
@@ -345,22 +494,88 @@ router.post(
         })
       }
 
-      if (classRecord.schoolId !== req.user!.schoolId!) {
-        return res.status(403).json({
-          message: "You can only add students to classes in your school",
+      let targetSchoolId: number
+
+      if (req.user.role === "SUPER_ADMIN") {
+        targetSchoolId = classRecord.schoolId
+      } else {
+        if (req.user.schoolId === null || req.user.schoolId === undefined) {
+          return res.status(403).json({
+            message: "No school assigned to this user",
+          })
+        }
+
+        if (classRecord.schoolId !== req.user.schoolId) {
+          return res.status(403).json({
+            message: "You can only add students to classes in your school",
+          })
+        }
+
+        targetSchoolId = req.user.schoolId
+      }
+
+      let resolvedParentId: number | null = null
+
+      if (parentId !== undefined && parentId !== null && parentId !== "") {
+        const parsedParentId = Number(parentId)
+
+        if (isNaN(parsedParentId)) {
+          return res.status(400).json({
+            message: "Valid parentId is required",
+          })
+        }
+
+        const parent = await prisma.parent.findUnique({
+          where: { id: parsedParentId },
+        })
+
+        if (!parent) {
+          return res.status(404).json({
+            message: "Parent not found",
+          })
+        }
+
+        if (parent.schoolId !== targetSchoolId) {
+          return res.status(403).json({
+            message: "Student and parent must belong to the same school",
+          })
+        }
+
+        resolvedParentId = parsedParentId
+      }
+
+      const generatedStudentId =
+        typeof studentId === "string" && studentId.trim().length > 0
+          ? studentId.trim()
+          : `STU-${Date.now()}`
+
+      const existingStudent = await prisma.student.findUnique({
+        where: { studentId: generatedStudentId },
+      })
+
+      if (existingStudent) {
+        return res.status(409).json({
+          message: "Student ID already exists",
         })
       }
 
       const student = await prisma.student.create({
         data: {
-          name,
-          studentId: `STU-${Date.now()}`,
+          name: String(name).trim(),
+          studentId: generatedStudentId,
           class: {
-            connect: { id: Number(classId) },
+            connect: { id: parsedClassId },
           },
           school: {
-            connect: { id: req.user!.schoolId! },
+            connect: { id: targetSchoolId },
           },
+          ...(resolvedParentId !== null
+            ? {
+                parent: {
+                  connect: { id: resolvedParentId },
+                },
+              }
+            : {}),
         },
         include: {
           class: {
@@ -391,7 +606,7 @@ router.post(
           message: `${student.name} has been added successfully to ${
             classRecord.name || "a class"
           }.`,
-          userId: req.user!.id,
+          userId: req.user.id,
         },
       })
 
@@ -399,8 +614,8 @@ router.post(
     } catch (error: any) {
       console.error("CREATE STUDENT ERROR:", error)
       return res.status(500).json({
-        message: "Failed to create student",
-        error: error.message,
+        message: error?.message || "Failed to create student",
+        error: error?.message,
       })
     }
   }
@@ -410,7 +625,6 @@ router.put(
   "/assign-parent/:studentId",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
-  requireSchoolUser,
   async (req: AuthRequest, res: Response) => {
     try {
       const studentId = Number(req.params.studentId)
@@ -434,8 +648,10 @@ router.put(
 
       enforceSameSchool(req, student.schoolId)
 
+      const parsedParentId = Number(parentId)
+
       const parent = await prisma.parent.findUnique({
-        where: { id: Number(parentId) },
+        where: { id: parsedParentId },
       })
 
       if (!parent) {
@@ -446,7 +662,7 @@ router.put(
 
       if (
         req.user?.role === "SCHOOL_ADMIN" &&
-        parent.schoolId !== req.user!.schoolId
+        parent.schoolId !== req.user.schoolId
       ) {
         return res.status(403).json({
           message: "You can only assign parents from your school",
@@ -462,7 +678,9 @@ router.put(
       const updatedStudent = await prisma.student.update({
         where: { id: studentId },
         data: {
-          parentId: Number(parentId),
+          parent: {
+            connect: { id: parsedParentId },
+          },
         },
         include: {
           parent: {
@@ -487,7 +705,7 @@ router.put(
         },
       })
 
-      return res.json({
+      return res.status(200).json({
         message: "Parent assigned successfully",
         student: updatedStudent,
       })
@@ -505,7 +723,7 @@ router.put(
   "/:id",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN"),
-  requireSchoolUser,
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
@@ -525,33 +743,48 @@ router.put(
 
       enforceSameSchool(req, existingStudent.schoolId)
 
-      let resolvedClassId = existingStudent.classId
-      let resolvedParentId = existingStudent.parentId
+      const updateData: any = {
+        name: name ? String(name).trim() : existingStudent.name,
+      }
 
-      if (classId !== undefined && classId !== null && classId !== "") {
-        const classRecord = await prisma.class.findUnique({
-          where: { id: Number(classId) },
-        })
+      if (classId !== undefined) {
+        if (classId === null || classId === "") {
+          updateData.class = {
+            disconnect: true,
+          }
+        } else {
+          const parsedClassId = Number(classId)
 
-        if (!classRecord) {
-          return res.status(404).json({ message: "Class not found" })
-        }
-
-        if (classRecord.schoolId !== req.user!.schoolId) {
-          return res.status(403).json({
-            message: "You can only assign classes in your school",
+          const classRecord = await prisma.class.findUnique({
+            where: { id: parsedClassId },
           })
-        }
 
-        resolvedClassId = Number(classId)
+          if (!classRecord) {
+            return res.status(404).json({ message: "Class not found" })
+          }
+
+          if (classRecord.schoolId !== req.user!.schoolId) {
+            return res.status(403).json({
+              message: "You can only assign classes in your school",
+            })
+          }
+
+          updateData.class = {
+            connect: { id: parsedClassId },
+          }
+        }
       }
 
       if (parentId !== undefined) {
         if (parentId === null || parentId === "") {
-          resolvedParentId = null
+          updateData.parent = {
+            disconnect: true,
+          }
         } else {
+          const parsedParentId = Number(parentId)
+
           const parent = await prisma.parent.findUnique({
-            where: { id: Number(parentId) },
+            where: { id: parsedParentId },
           })
 
           if (!parent) {
@@ -564,17 +797,15 @@ router.put(
             })
           }
 
-          resolvedParentId = Number(parentId)
+          updateData.parent = {
+            connect: { id: parsedParentId },
+          }
         }
       }
 
       const student = await prisma.student.update({
         where: { id },
-        data: {
-          name: name ?? existingStudent.name,
-          classId: resolvedClassId,
-          parentId: resolvedParentId,
-        },
+        data: updateData,
         include: {
           parent: {
             select: {
@@ -598,7 +829,7 @@ router.put(
         },
       })
 
-      return res.json(student)
+      return res.status(200).json(student)
     } catch (error: any) {
       console.error("UPDATE STUDENT ERROR:", error)
       return res.status(error.message === "Forbidden" ? 403 : 500).json({
@@ -616,7 +847,7 @@ router.delete(
   "/:id",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN"),
-  requireSchoolUser,
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
@@ -639,7 +870,7 @@ router.delete(
         where: { id },
       })
 
-      return res.json({ message: "Student deleted successfully" })
+      return res.status(200).json({ message: "Student deleted successfully" })
     } catch (error: any) {
       console.error("DELETE STUDENT ERROR:", error)
       return res.status(error.message === "Forbidden" ? 403 : 500).json({
@@ -657,10 +888,37 @@ router.post(
   "/:id/photo",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
-  requireSchoolUser,
+  requireActiveSubscription,
   upload.single("photo"),
   async (req: AuthRequest, res: Response) => {
     try {
+      const id = Number(req.params.id)
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid student id" })
+      }
+
+      const student = await prisma.student.findUnique({
+        where: { id },
+        include: {
+          class: true,
+        },
+      })
+
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" })
+      }
+
+      enforceSameSchool(req, student.schoolId)
+
+      if (req.user?.role === "TEACHER") {
+        const teacher = await getTeacherProfile(req)
+
+        if (!teacher || student.class?.teacherId !== teacher.id) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
+
       return res.status(400).json({
         message: "Photo field is not available in the current Student model",
       })
@@ -678,9 +936,36 @@ router.put(
   "/:id/remarks",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
-  requireSchoolUser,
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
+      const id = Number(req.params.id)
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid student id" })
+      }
+
+      const student = await prisma.student.findUnique({
+        where: { id },
+        include: {
+          class: true,
+        },
+      })
+
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" })
+      }
+
+      enforceSameSchool(req, student.schoolId)
+
+      if (req.user?.role === "TEACHER") {
+        const teacher = await getTeacherProfile(req)
+
+        if (!teacher || student.class?.teacherId !== teacher.id) {
+          return res.status(403).json({ message: "Forbidden" })
+        }
+      }
+
       return res.status(400).json({
         message: "Remarks fields are not available in the current Student model",
       })

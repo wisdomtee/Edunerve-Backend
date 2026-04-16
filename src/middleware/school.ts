@@ -1,9 +1,7 @@
+// src/middleware/school.ts
 import { Response, NextFunction } from "express"
 import { AuthRequest } from "./auth"
 
-// =======================
-// REQUIRE SCHOOL USER
-// =======================
 export const requireSchoolUser = (
   req: AuthRequest,
   res: Response,
@@ -15,40 +13,61 @@ export const requireSchoolUser = (
     })
   }
 
-  if (!req.user.schoolId) {
-    return res.status(400).json({
-      message: "No school assigned to this user",
+  // SUPER_ADMIN can operate without a schoolId
+  if (req.user.role === "SUPER_ADMIN") {
+    return next()
+  }
+
+  if (req.user.schoolId === null || req.user.schoolId === undefined) {
+    return res.status(403).json({
+      message: "User must belong to a school",
     })
   }
 
   next()
 }
 
-// =======================
-// FILTER BY SCHOOL
-// =======================
-export const getSchoolFilter = (req: AuthRequest) => {
-  if (!req.user?.schoolId) {
-    throw new Error("No school assigned to this user")
-  }
-
-  return {
-    schoolId: req.user.schoolId,
-  }
-}
-
-// =======================
-// ENSURE SAME SCHOOL
-// =======================
 export const enforceSameSchool = (
   req: AuthRequest,
-  resourceSchoolId: number
+  resourceSchoolId?: number | null
 ) => {
-  if (!req.user?.schoolId) {
+  if (!req.user) {
+    throw new Error("Unauthorized")
+  }
+
+  // SUPER_ADMIN can access across schools
+  if (req.user.role === "SUPER_ADMIN") {
+    return
+  }
+
+  if (req.user.schoolId === null || req.user.schoolId === undefined) {
+    throw new Error("Forbidden")
+  }
+
+  if (resourceSchoolId === null || resourceSchoolId === undefined) {
     throw new Error("Forbidden")
   }
 
   if (req.user.schoolId !== resourceSchoolId) {
     throw new Error("Forbidden")
+  }
+}
+
+export const getSchoolFilter = (req: AuthRequest) => {
+  if (!req.user) {
+    throw new Error("Unauthorized")
+  }
+
+  // SUPER_ADMIN sees all schools
+  if (req.user.role === "SUPER_ADMIN") {
+    return {}
+  }
+
+  if (req.user.schoolId === null || req.user.schoolId === undefined) {
+    throw new Error("Forbidden")
+  }
+
+  return {
+    schoolId: req.user.schoolId,
   }
 }

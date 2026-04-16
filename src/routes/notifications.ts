@@ -1,86 +1,135 @@
 import { Router } from "express"
 import prisma from "../prisma"
-import { authMiddleware, AuthRequest } from "../middleware/auth"
+import { authMiddleware } from "../middleware/auth"
 
 const router = Router()
 
-router.get("/", authMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const userId = req.user?.id
+router.use(authMiddleware)
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized: user not found" })
-    }
+// get current user's notifications
+router.get("/", async (req: any, res) => {
+  try {
+    const userId = Number(req.user.id)
 
     const notifications = await prisma.notification.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
     })
 
-    return res.json(
-      notifications.map((notification) => ({
-        ...notification,
-        read: false,
-      }))
-    )
+    res.status(200).json(notifications)
   } catch (error) {
-    console.error("GET /notifications error:", error)
-    return res.status(500).json({ error: "Failed to fetch notifications" })
+    console.error("Get notifications error:", error)
+    res.status(500).json({ message: "Failed to fetch notifications" })
   }
 })
 
-router.patch("/read-all", authMiddleware, async (req: AuthRequest, res) => {
+// unread count
+router.get("/unread-count", async (req: any, res) => {
   try {
-    const userId = req.user?.id
+    const userId = Number(req.user.id)
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized: user not found" })
-    }
-
-    const notifications = await prisma.notification.findMany({
-      where: { userId },
-      select: { id: true },
+    const count = await prisma.notification.count({
+      where: {
+        userId,
+        isRead: false,
+      },
     })
 
-    return res.json({
-      message: "Read status is not stored in the current Notification model",
-      updatedCount: notifications.length,
-    })
+    res.status(200).json({ count })
   } catch (error) {
-    console.error("PATCH /notifications/read-all error:", error)
-    return res.status(500).json({ error: "Failed to update notifications" })
+    console.error("Unread count error:", error)
+    res.status(500).json({ message: "Failed to fetch unread count" })
   }
 })
 
-router.patch("/:id/read", authMiddleware, async (req: AuthRequest, res) => {
+// mark one as read
+router.patch("/:id/read", async (req: any, res) => {
   try {
-    const userId = req.user?.id
+    const userId = Number(req.user.id)
     const id = Number(req.params.id)
 
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized: user not found" })
-    }
-
     if (isNaN(id)) {
-      return res.status(400).json({ error: "Invalid notification ID" })
+      return res.status(400).json({ message: "Invalid notification id" })
     }
 
-    const existingNotification = await prisma.notification.findFirst({
-      where: { id, userId },
+    const existing = await prisma.notification.findFirst({
+      where: {
+        id,
+        userId,
+      },
     })
 
-    if (!existingNotification) {
-      return res.status(404).json({ error: "Notification not found" })
+    if (!existing) {
+      return res.status(404).json({ message: "Notification not found" })
     }
 
-    return res.json({
-      ...existingNotification,
-      read: true,
-      message: "Read status is not stored in the current Notification model",
+    const notification = await prisma.notification.update({
+      where: { id },
+      data: { isRead: true },
+    })
+
+    return res.status(200).json(notification)
+  } catch (error) {
+    console.error("Mark read error:", error)
+    return res.status(500).json({ message: "Failed to mark notification as read" })
+  }
+})
+
+// mark all as read
+router.patch("/read-all", async (req: any, res) => {
+  try {
+    const userId = Number(req.user.id)
+
+    const updated = await prisma.notification.updateMany({
+      where: {
+        userId,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+      },
+    })
+
+    res.status(200).json({
+      message: "All notifications marked as read",
+      updatedCount: updated.count,
     })
   } catch (error) {
-    console.error("PATCH /notifications/:id/read error:", error)
-    return res.status(500).json({ error: "Failed to update notification" })
+    console.error("Read all error:", error)
+    res.status(500).json({ message: "Failed to mark all as read" })
+  }
+})
+
+// register device token
+router.post("/register-token", async (req: any, res) => {
+  try {
+    const userId = Number(req.user.id)
+    const { token, platform } = req.body
+
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ message: "Token is required" })
+    }
+
+    const saved = await prisma.deviceToken.upsert({
+      where: { token },
+      update: {
+        userId,
+        platform,
+      },
+      create: {
+        userId,
+        token,
+        platform,
+      },
+    })
+
+    return res.status(200).json({
+      message: "Device token registered successfully",
+      deviceToken: saved,
+    })
+  } catch (error) {
+    console.error("Register token error:", error)
+    return res.status(500).json({ message: "Failed to register token" })
   }
 })
 

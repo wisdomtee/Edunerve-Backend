@@ -4,7 +4,9 @@ import { AuthRequest, UserRole } from "./auth"
 export const authorizeRoles = (...allowedRoles: UserRole[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" })
+      return res.status(401).json({
+        message: "Unauthorized",
+      })
     }
 
     if (!allowedRoles.includes(req.user.role)) {

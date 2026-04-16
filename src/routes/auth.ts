@@ -1,24 +1,55 @@
-import { Router } from "express"
+import { Router, Request, Response } from "express"
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
 import prisma from "../prisma"
 
 const router = Router()
 
-router.post("/login", async (req, res) => {
+// =======================
+// LOGIN (UPDATED WITH SCHOOL CODE)
+// =======================
+router.post("/login", async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body
+    const { email, password, schoolCode } = req.body
 
-    if (!email || !password) {
+    const normalizedEmail = String(email || "").trim().toLowerCase()
+    const normalizedPassword = String(password || "").trim()
+    const normalizedSchoolCode = String(schoolCode || "")
+      .trim()
+      .toUpperCase()
+
+    if (!normalizedEmail || !normalizedPassword || !normalizedSchoolCode) {
       return res.status(400).json({
-        message: "Email and password are required",
+        message: "School code, email and password are required",
       })
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase()
+    console.log("🔐 LOGIN ATTEMPT")
+    console.log("School Code:", normalizedSchoolCode)
+    console.log("Email:", normalizedEmail)
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
+    // 🔥 FIND SCHOOL FIRST
+    const school = await prisma.school.findUnique({
+      where: {
+        schoolCode: normalizedSchoolCode,
+      },
+    })
+
+    if (!school) {
+      return res.status(404).json({
+        message: "Invalid school code",
+      })
+    }
+
+    // 🔥 FIND USER WITH SCHOOL ID
+    const user = await prisma.user.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+        schoolId: school.id,
+      },
       select: {
         id: true,
         name: true,
@@ -26,16 +57,24 @@ router.post("/login", async (req, res) => {
         password: true,
         role: true,
         schoolId: true,
+        mustChangePassword: true,
       },
     })
 
+    console.log("User found:", user ? user.email : null)
+
     if (!user) {
       return res.status(404).json({
-        message: "User not found",
+        message: "User not found in this school",
       })
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password)
+    const isPasswordValid = await bcrypt.compare(
+      normalizedPassword,
+      user.password
+    )
+
+    console.log("Password valid:", isPasswordValid)
 
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -52,13 +91,46 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign(
       {
         id: user.id,
-        email: user.email,
         role: user.role,
         schoolId: user.schoolId ?? null,
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     )
+
+    let linkedStudent: { id: number; name: string } | null = null
+
+    // =======================
+    // PARENT LINKING
+    // =======================
+    if (user.role === "PARENT") {
+      const parent = await prisma.parent.findUnique({
+        where: {
+          userId: user.id,
+        },
+        include: {
+          students: {
+            select: {
+              id: true,
+              name: true,
+            },
+            orderBy: {
+              id: "asc",
+            },
+          },
+        },
+      })
+
+      console.log("Parent profile found:", !!parent)
+      console.log("Linked students:", parent?.students?.length || 0)
+
+      if (parent && parent.students.length > 0) {
+        linkedStudent = {
+          id: parent.students[0].id,
+          name: parent.students[0].name,
+        }
+      }
+    }
 
     return res.status(200).json({
       message: "Login successful",
@@ -69,14 +141,115 @@ router.post("/login", async (req, res) => {
         email: user.email,
         role: user.role,
         schoolId: user.schoolId ?? null,
+        mustChangePassword: user.mustChangePassword,
       },
+      linkedStudent,
     })
   } catch (error: any) {
     console.error("LOGIN ERROR:", error)
 
     return res.status(500).json({
       message: "Server error",
-      error: error.message,
+      error: error?.message || "Unknown error",
+    })
+  }
+})
+
+
+// =======================
+// CHANGE PASSWORD
+// =======================
+router.post("/change-password", async (req: Request, res: Response) => {
+  try {
+    const { email, schoolCode, currentPassword, newPassword } = req.body
+
+    const normalizedEmail = String(email || "").trim().toLowerCase()
+    const normalizedCurrentPassword = String(currentPassword || "").trim()
+    const normalizedNewPassword = String(newPassword || "").trim()
+    const normalizedSchoolCode = String(schoolCode || "")
+      .trim()
+      .toUpperCase()
+
+    if (
+      !normalizedEmail ||
+      !normalizedCurrentPassword ||
+      !normalizedNewPassword ||
+      !normalizedSchoolCode
+    ) {
+      return res.status(400).json({
+        message:
+          "School code, email, currentPassword and newPassword are required",
+      })
+    }
+
+    if (normalizedNewPassword.length < 6) {
+      return res.status(400).json({
+        message: "New password must be at least 6 characters",
+      })
+    }
+
+    const school = await prisma.school.findUnique({
+      where: {
+        schoolCode: normalizedSchoolCode,
+      },
+    })
+
+    if (!school) {
+      return res.status(404).json({
+        message: "Invalid school code",
+      })
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+        schoolId: school.id,
+      },
+      select: {
+        id: true,
+        password: true,
+      },
+    })
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      })
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      normalizedCurrentPassword,
+      user.password
+    )
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        message: "Current password is incorrect",
+      })
+    }
+
+    const hashedPassword = await bcrypt.hash(normalizedNewPassword, 10)
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        mustChangePassword: false,
+      },
+    })
+
+    return res.status(200).json({
+      message: "Password changed successfully",
+    })
+  } catch (error: any) {
+    console.error("CHANGE PASSWORD ERROR:", error)
+
+    return res.status(500).json({
+      message: "Failed to change password",
+      error: error?.message || "Unknown error",
     })
   }
 })

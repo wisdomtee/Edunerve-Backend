@@ -1,17 +1,9 @@
 import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 
-export type UserRole =
-  | "SUPER_ADMIN"
-  | "SCHOOL_ADMIN"
-  | "TEACHER"
-  | "PARENT"
-  | "STUDENT"
-
 export interface AuthUser {
   id: number
-  email: string
-  role: UserRole
+  role: string
   schoolId?: number | null
 }
 
@@ -27,33 +19,58 @@ export const authMiddleware = (
   try {
     const authHeader = req.headers.authorization
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!authHeader) {
       return res.status(401).json({
-        message: "Unauthorized: No token provided",
+        message: "Unauthorized",
+      })
+    }
+
+    if (!authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        message: "Invalid authorization format",
       })
     }
 
     const token = authHeader.split(" ")[1]
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET as string
-    ) as jwt.JwtPayload
+    if (!token) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      })
+    }
+
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        message: "JWT secret is not configured",
+      })
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET) as jwt.JwtPayload
+
+    if (
+      !decoded ||
+      typeof decoded !== "object" ||
+      typeof decoded.id !== "number" ||
+      typeof decoded.role !== "string"
+    ) {
+      return res.status(401).json({
+        message: "Invalid token payload",
+      })
+    }
 
     req.user = {
-      id: Number(decoded.id),
-      email: String(decoded.email),
-      role: decoded.role as UserRole,
+      id: decoded.id,
+      role: decoded.role,
       schoolId:
-        decoded.schoolId !== undefined && decoded.schoolId !== null
-          ? Number(decoded.schoolId)
-          : null,
+        typeof decoded.schoolId === "number" ? decoded.schoolId : null,
     }
 
     next()
   } catch (error) {
+    console.error("AUTH ERROR:", error)
+
     return res.status(401).json({
-      message: "Unauthorized: Invalid token",
+      message: "Invalid or expired token",
     })
   }
 }

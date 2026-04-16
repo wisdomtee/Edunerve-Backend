@@ -3,11 +3,12 @@ import bcrypt from "bcryptjs"
 import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
 import { authorizeRoles } from "../middleware/authorize"
+import { requireActiveSubscription } from "../middleware/subscription"
 
 const router = Router()
 
 // =======================
-// GET ALL TEACHERS
+// GET ALL TEACHERS (FREE)
 // =======================
 router.get(
   "/",
@@ -52,7 +53,7 @@ router.get(
 )
 
 // =======================
-// GET TEACHER PROFILE (LOGGED IN TEACHER)
+// GET TEACHER PROFILE
 // =======================
 router.get(
   "/me",
@@ -98,7 +99,7 @@ router.get(
 )
 
 // =======================
-// GET TEACHER SUMMARY (FOR DASHBOARD)
+// GET TEACHER SUMMARY
 // =======================
 router.get(
   "/me/summary",
@@ -218,12 +219,13 @@ router.get(
 )
 
 // =======================
-// CREATE TEACHER
+// CREATE TEACHER (PAID)
 // =======================
 router.post(
   "/create",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const { name, email, password, phone, subject, schoolId } = req.body
@@ -325,12 +327,13 @@ router.post(
 )
 
 // =======================
-// UPDATE TEACHER
+// UPDATE TEACHER (PAID)
 // =======================
 router.put(
   "/:id",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
@@ -362,18 +365,6 @@ router.put(
         return res.status(403).json({
           message: "Forbidden",
         })
-      }
-
-      if (email && email !== existingTeacher.email) {
-        const duplicateUser = await prisma.user.findUnique({
-          where: { email },
-        })
-
-        if (duplicateUser && duplicateUser.id !== existingTeacher.userId) {
-          return res.status(400).json({
-            message: "Another user with this email already exists",
-          })
-        }
       }
 
       const updatedTeacher = await prisma.$transaction(async (tx) => {
@@ -415,12 +406,13 @@ router.put(
 )
 
 // =======================
-// DELETE TEACHER
+// DELETE TEACHER (PAID)
 // =======================
 router.delete(
   "/:id",
   authMiddleware,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
@@ -447,23 +439,6 @@ router.delete(
       ) {
         return res.status(403).json({
           message: "Forbidden",
-        })
-      }
-
-      const linkedClasses = await prisma.class.findMany({
-        where: {
-          teacherId: teacher.id,
-        },
-      })
-
-      if (linkedClasses.length > 0) {
-        await prisma.class.updateMany({
-          where: {
-            teacherId: teacher.id,
-          },
-          data: {
-            teacherId: null,
-          },
         })
       }
 

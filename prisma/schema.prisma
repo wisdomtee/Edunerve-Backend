@@ -15,20 +15,54 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum PlanType {
+  NORMAL
+  PRO
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ReceiptStatus {
+  ISSUED
+  VOID
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum BillingStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  password  String
-  role      String
-  schoolId  Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 Int      @id @default(autoincrement())
+  name               String
+  email              String   @unique
+  password           String
+  role               String
+  schoolId           Int?
+  mustChangePassword Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  school School? @relation(fields: [schoolId], references: [id])
-
+  school           School?        @relation(fields: [schoolId], references: [id])
   parents          Parent[]
   teacherProfile   Teacher?
+  deviceTokens     DeviceToken[]
   notifications    Notification[]
   sentMessages     Message[]      @relation("SentMessages")
   receivedMessages Message[]      @relation("ReceivedMessages")
@@ -44,33 +78,163 @@ model Admin {
 }
 
 model School {
-  id                 Int     @id @default(autoincrement())
-  name               String
-  address            String
-  phone              String?
-  email              String?
-  subscriptionStatus String  @default("active")
+  id         Int     @id @default(autoincrement())
+  name       String
+  address    String
+  phone      String?
+  email      String? @unique
+  schoolCode String  @unique    // NEW
 
-  users    User[]
-  teachers Teacher[]
-  parents  Parent[]
-  students Student[]
-  classes  Class[]
-  subjects Subject[]
-  results  Result[]
-  fees     Fee[]
-  messages Message[]
+  plan               PlanType  @default(NORMAL)
+  subscriptionPlan   String    @default("NORMAL")
+  subscriptionStatus String    @default("active")
+  subscriptionStart  DateTime?
+  subscriptionEnd    DateTime?
+
+  billingCycle    String    @default("monthly")
+  nextBillingDate DateTime?
+
+  billingState SchoolBillingState?
+
+  users         User[]
+  teachers      Teacher[]
+  parents       Parent[]
+  students      Student[]
+  classes       Class[]
+  subjects      Subject[]
+  results       Result[]
+  invoices      Invoice[]
+  receipts      Receipt[]
+  payments      Payment[]
+  subscriptions Subscription[]
+  fees          Fee[]
+  messages      Message[]
+  feeInvoices   FeeInvoice[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("schools")
+}
+
+model SchoolBillingState {
+  id              Int           @id @default(autoincrement())
+  schoolId        Int           @unique
+  plan            PlanType      @default(NORMAL)
+  status          BillingStatus @default(TRIAL)
+  amount          Float         @default(0)
+  currency        String        @default("NGN")
+  billingCycle    String        @default("monthly")
+  trialStartsAt   DateTime      @default(now())
+  trialEndsAt     DateTime?
+  nextBillingDate DateTime?
+  lastPaymentDate DateTime?
+  isAutoRenew     Boolean       @default(false)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([plan])
+  @@index([status])
+  @@map("school_billing_states")
+}
+
+model Invoice {
+  id               Int           @id @default(autoincrement())
+  invoiceNumber    String        @unique
+  schoolId         Int
+  planType         PlanType
+  billingCycle     String        @default("monthly")
+  amount           Decimal       @db.Decimal(10, 2)
+  tax              Decimal?      @db.Decimal(10, 2)
+  discount         Decimal?      @db.Decimal(10, 2)
+  total            Decimal?      @db.Decimal(10, 2)
+  description      String?
+  status           InvoiceStatus @default(PENDING)
+  issueDate        DateTime      @default(now())
+  dueDate          DateTime?
+  paidAt           DateTime?
+  paymentReference String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  school   School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  receipt  Receipt?
+  payments Payment[]
+
+  @@index([schoolId])
+  @@index([status])
+}
+
+model Receipt {
+  id            Int           @id @default(autoincrement())
+  receiptNumber String        @unique
+  invoiceId     Int           @unique
+  schoolId      Int
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod String?
+  notes         String?
+  status        ReceiptStatus @default(ISSUED)
+  paymentDate   DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+}
+
+model Payment {
+  id               Int           @id @default(autoincrement())
+  invoiceId        Int
+  schoolId         Int
+  plan             PlanType
+  amount           Float
+  currency         String        @default("NGN")
+  reference        String        @unique
+  accessCode       String?
+  authorizationUrl String?
+  status           PaymentStatus @default(PENDING)
+  method           String        @default("manual")
+  paidAt           DateTime?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([invoiceId])
+  @@index([status])
+}
+
+model Subscription {
+  id        Int      @id @default(autoincrement())
+  schoolId  Int
+  plan      String
+  status    String
+  startDate DateTime
+  endDate   DateTime
+  amount    Float
+  createdAt DateTime @default(now())
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([status])
 }
 
 model Subject {
-  id       Int      @id @default(autoincrement())
+  id       Int    @id @default(autoincrement())
   name     String
   schoolId Int
-  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  results  Result[]
+
+  school  School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  results Result[]
 }
 
 model Parent {
@@ -104,39 +268,39 @@ model Student {
   school School? @relation(fields: [schoolId], references: [id])
   parent Parent? @relation(fields: [parentId], references: [id])
 
-  attendance Attendance[]
-  results    Result[]
-  fees       Fee[]
+  attendance  Attendance[]
+  results     Result[]
+  feeInvoices FeeInvoice[]
+  fees        Fee[]
 }
 
 model Class {
-  id        Int    @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   name      String
   schoolId  Int
   teacherId Int?
+  createdAt DateTime @default(now())
 
-  school    School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  teacher   Teacher?  @relation(fields: [teacherId], references: [id])
-  students  Student[]
-  createdAt DateTime  @default(now())
+  school   School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacher  Teacher?  @relation(fields: [teacherId], references: [id])
+  students Student[]
 }
 
 model Teacher {
-  id       Int    @id @default(autoincrement())
-  userId   Int    @unique
-  schoolId Int
-  user     User   @relation(fields: [userId], references: [id])
-  school   School @relation(fields: [schoolId], references: [id])
-
-  name    String
-  email   String  @unique
-  phone   String?
-  subject String?
-
-  classes   Class[]
-  results   Result[]
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  schoolId  Int
+  name      String
+  email     String   @unique
+  phone     String?
+  subject   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  school  School   @relation(fields: [schoolId], references: [id])
+  classes Class[]
+  results Result[]
 }
 
 model Attendance {
@@ -144,9 +308,9 @@ model Attendance {
   studentId Int
   date      DateTime @default(now())
   status    String
-
-  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model Result {
@@ -176,17 +340,37 @@ model Notification {
   id        Int      @id @default(autoincrement())
   userId    Int
   title     String
-  message   String
+  body      String   @default("")
+  type      String   @default("GENERAL")
+  data      Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model DeviceToken {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  token       String   @unique
+  platform    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Fee {
   id        Int       @id @default(autoincrement())
   title     String
   amount    Float
+  method    String?
+  reference String?
+  note      String?
   status    String    @default("pending")
   dueDate   DateTime?
   paidAt    DateTime?
@@ -195,8 +379,56 @@ model Fee {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  provider           String?
+  providerRreference String? @unique
+  channel            String?
+  currency           String?
+
   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
   school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+}
+
+model FeeInvoice {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  amount      Float
+  paidAmount  Float     @default(0)
+  balance     Float
+  status      String    @default("PENDING")
+  dueDate     DateTime?
+  studentId   Int
+  schoolId    Int
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  student  Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  school   School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  payments FeePayment[]
+
+  @@index([studentId])
+  @@index([schoolId])
+}
+
+model FeePayment {
+  id        Int      @id @default(autoincrement())
+  invoiceId Int
+  amount    Float
+  method    String?
+  reference String?
+  note      String?
+  paidAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  provider          String?
+  providerReference String? @unique
+  status            String?
+  channel           String?
+  currency          String?
+
+  invoice FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
 }
 
 model Message {

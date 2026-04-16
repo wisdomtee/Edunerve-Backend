@@ -3,6 +3,8 @@ import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
 import { authorizeRoles } from "../middleware/authorize"
 import { enforceSameSchool } from "../middleware/school"
+import { requireActiveSubscription } from "../middleware/subscription"
+import { sendNotification } from "../services/notificationService"
 
 const router = Router()
 
@@ -41,6 +43,85 @@ function normalizeNullableString(value: any) {
   if (value === undefined || value === null) return null
   const trimmed = String(value).trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function scoreToGrade(score: number) {
+  if (score >= 70) return "A"
+  if (score >= 60) return "B"
+  if (score >= 50) return "C"
+  if (score >= 45) return "D"
+  if (score >= 40) return "E"
+  return "F"
+}
+
+function scoreToRemark(score: number) {
+  if (score >= 70) return "Excellent"
+  if (score >= 60) return "Very Good"
+  if (score >= 50) return "Good"
+  if (score >= 45) return "Fair"
+  if (score >= 40) return "Pass"
+  return "Fail"
+}
+
+function overallRemarkFromAverage(score: number) {
+  if (score >= 75) return "Excellent academic performance"
+  if (score >= 65) return "Very good progress overall"
+  if (score >= 55) return "Good performance, keep improving"
+  if (score >= 45) return "Fair performance, more effort needed"
+  return "Needs more academic support"
+}
+
+async function resolveSubjectForSchool(params: {
+  schoolId: number
+  subject?: any
+  subjectId?: any
+}) {
+  const { schoolId, subject, subjectId } = params
+
+  let subjectRecord = null
+
+  if (
+    subjectId !== undefined &&
+    subjectId !== null &&
+    String(subjectId).trim() !== ""
+  ) {
+    const parsedSubjectId = Number(subjectId)
+
+    if (isNaN(parsedSubjectId)) {
+      throw new Error("Invalid subjectId")
+    }
+
+    subjectRecord = await prisma.subject.findFirst({
+      where: {
+        id: parsedSubjectId,
+        schoolId,
+      },
+    })
+  }
+
+  if (!subjectRecord && subject) {
+    const subjectName = String(subject).trim()
+
+    if (subjectName) {
+      subjectRecord = await prisma.subject.findFirst({
+        where: {
+          name: subjectName,
+          schoolId,
+        },
+      })
+
+      if (!subjectRecord) {
+        subjectRecord = await prisma.subject.create({
+          data: {
+            name: subjectName,
+            schoolId,
+          },
+        })
+      }
+    }
+  }
+
+  return subjectRecord
 }
 
 // =======================
@@ -105,9 +186,7 @@ router.get(
             return res.status(403).json({ message: "Forbidden" })
           }
         } else {
-          where.studentId = {
-            in: allowedIds,
-          }
+          where.studentId = { in: allowedIds }
         }
       }
 
@@ -159,6 +238,7 @@ router.get(
         include: {
           class: true,
           school: true,
+          parent: true,
         },
       })
 
@@ -230,6 +310,7 @@ router.post(
   "/",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const { studentId, subject, subjectId, score, term, session, teacherId } =
@@ -262,6 +343,7 @@ router.post(
         where: { id: parsedStudentId },
         include: {
           class: true,
+          parent: true,
         },
       })
 
@@ -271,42 +353,11 @@ router.post(
 
       enforceSameSchool(req, student.schoolId)
 
-      let subjectRecord = null
-
-      if (subjectId) {
-        const parsedSubjectId = Number(subjectId)
-
-        if (isNaN(parsedSubjectId)) {
-          return res.status(400).json({
-            message: "Invalid subjectId",
-          })
-        }
-
-        subjectRecord = await prisma.subject.findFirst({
-          where: {
-            id: parsedSubjectId,
-            schoolId: student.schoolId,
-          },
-        })
-      }
-
-      if (!subjectRecord && subject) {
-        subjectRecord = await prisma.subject.findFirst({
-          where: {
-            name: String(subject).trim(),
-            schoolId: student.schoolId,
-          },
-        })
-
-        if (!subjectRecord) {
-          subjectRecord = await prisma.subject.create({
-            data: {
-              name: String(subject).trim(),
-              schoolId: student.schoolId,
-            },
-          })
-        }
-      }
+      const subjectRecord = await resolveSubjectForSchool({
+        schoolId: student.schoolId,
+        subject,
+        subjectId,
+      })
 
       if (!subjectRecord) {
         return res.status(400).json({
@@ -391,7 +442,22 @@ router.post(
         })
       }
 
-      return res.status(201).json({
+      if (student.parentId) {
+        await sendNotification({
+          userId: student.parentId,
+          title: existingResult ? "Result Updated" : "New Result Uploaded",
+          body: `${student.name}'s result for ${subjectRecord.name} has been ${
+            existingResult ? "updated" : "uploaded"
+          }.`,
+          type: "RESULT",
+          data: {
+            studentId: student.id,
+            resultId: result.id,
+          },
+        })
+      }
+
+      return res.status(existingResult ? 200 : 201).json({
         message: existingResult
           ? "Result updated successfully"
           : "Result created successfully",
@@ -411,12 +477,173 @@ router.post(
 )
 
 // =======================
+// UPDATE SINGLE RESULT
+// =======================
+router.patch(
+  "/:id",
+  authMiddleware,
+  authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
+  requireActiveSubscription,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const id = Number(req.params.id)
+      const { score, subject, subjectId, term, session, teacherId } = req.body
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid result id" })
+      }
+
+      const existing = await prisma.result.findUnique({
+        where: { id },
+        include: {
+          student: {
+            include: {
+              parent: true,
+            },
+          },
+          subject: true,
+        },
+      })
+
+      if (!existing) {
+        return res.status(404).json({ message: "Result not found" })
+      }
+
+      enforceSameSchool(req, existing.schoolId)
+
+      if (req.user?.role === "TEACHER") {
+        const teacherIdFromUser = await resolveTeacherId(req)
+
+        if (!teacherIdFromUser) {
+          return res.status(404).json({
+            message: "Teacher profile not found",
+          })
+        }
+
+        if (existing.teacherId && existing.teacherId !== teacherIdFromUser) {
+          return res.status(403).json({
+            message: "You can only update your own result records",
+          })
+        }
+      }
+
+      const data: any = {}
+
+      if (score !== undefined) {
+        const parsedScore = Number(score)
+
+        if (isNaN(parsedScore)) {
+          return res.status(400).json({ message: "Invalid score" })
+        }
+
+        if (parsedScore < 0 || parsedScore > 100) {
+          return res.status(400).json({
+            message: "Score must be between 0 and 100",
+          })
+        }
+
+        data.score = parsedScore
+      }
+
+      if (term !== undefined) {
+        data.term = normalizeNullableString(term)
+      }
+
+      if (session !== undefined) {
+        data.session = normalizeNullableString(session)
+      }
+
+      if (subject !== undefined || subjectId !== undefined) {
+        const subjectRecord = await resolveSubjectForSchool({
+          schoolId: existing.schoolId,
+          subject,
+          subjectId,
+        })
+
+        if (!subjectRecord) {
+          return res.status(400).json({
+            message: "Unable to resolve subject",
+          })
+        }
+
+        data.subjectId = subjectRecord.id
+      }
+
+      if (req.user?.role === "TEACHER") {
+        const teacherIdFromUser = await resolveTeacherId(req)
+        if (teacherIdFromUser) {
+          data.teacherId = teacherIdFromUser
+        }
+      } else if (teacherId !== undefined) {
+        const parsedTeacherId = Number(teacherId)
+        if (!isNaN(parsedTeacherId)) {
+          const teacher = await prisma.teacher.findFirst({
+            where: {
+              id: parsedTeacherId,
+              schoolId: existing.schoolId,
+            },
+          })
+          if (teacher) {
+            data.teacherId = teacher.id
+          }
+        }
+      }
+
+      const updated = await prisma.result.update({
+        where: { id },
+        data,
+        include: {
+          student: {
+            include: {
+              class: true,
+            },
+          },
+          subject: true,
+          teacher: true,
+          school: true,
+        },
+      })
+
+      if (existing.student.parentId) {
+        await sendNotification({
+          userId: existing.student.parentId,
+          title: "Result Updated",
+          body: `${existing.student.name}'s result for ${
+            updated.subject?.name || existing.subject?.name || "a subject"
+          } has been updated.`,
+          type: "RESULT",
+          data: {
+            studentId: existing.student.id,
+            resultId: updated.id,
+          },
+        })
+      }
+
+      return res.status(200).json({
+        message: "Result updated successfully",
+        result: updated,
+      })
+    } catch (error: any) {
+      console.error("PATCH RESULT ERROR:", error)
+      return res.status(error.message === "Forbidden" ? 403 : 500).json({
+        message:
+          error.message === "Forbidden"
+            ? "Forbidden"
+            : "Failed to update result",
+        error: error.message,
+      })
+    }
+  }
+)
+
+// =======================
 // CREATE / UPDATE BULK RESULTS
 // =======================
 router.post(
   "/bulk",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const { classId, subject, subjectId, term, session, teacherId, records } =
@@ -487,42 +714,11 @@ router.post(
         }
       }
 
-      let subjectRecord = null
-
-      if (subjectId) {
-        const parsedSubjectId = Number(subjectId)
-
-        if (isNaN(parsedSubjectId)) {
-          return res.status(400).json({
-            message: "Invalid subjectId",
-          })
-        }
-
-        subjectRecord = await prisma.subject.findFirst({
-          where: {
-            id: parsedSubjectId,
-            schoolId: classItem.schoolId,
-          },
-        })
-      }
-
-      if (!subjectRecord && subject) {
-        subjectRecord = await prisma.subject.findFirst({
-          where: {
-            name: String(subject).trim(),
-            schoolId: classItem.schoolId,
-          },
-        })
-
-        if (!subjectRecord) {
-          subjectRecord = await prisma.subject.create({
-            data: {
-              name: String(subject).trim(),
-              schoolId: classItem.schoolId,
-            },
-          })
-        }
-      }
+      const subjectRecord = await resolveSubjectForSchool({
+        schoolId: classItem.schoolId,
+        subject,
+        subjectId,
+      })
 
       if (!subjectRecord) {
         return res.status(400).json({
@@ -537,10 +733,17 @@ router.post(
         },
         select: {
           id: true,
+          name: true,
+          parentId: true,
         },
       })
 
-      const allowedStudentIds = new Set(classStudents.map((student) => student.id))
+      const studentMap = new Map(
+        classStudents.map((student) => [student.id, student])
+      )
+      const allowedStudentIds = new Set(
+        classStudents.map((student) => student.id)
+      )
       const normalizedTerm = normalizeNullableString(term)
       const normalizedSession = normalizeNullableString(session)
 
@@ -563,8 +766,10 @@ router.post(
           },
         })
 
+        let result
+
         if (existingResult) {
-          await prisma.result.update({
+          result = await prisma.result.update({
             where: { id: existingResult.id },
             data: {
               score: parsedScore,
@@ -572,7 +777,7 @@ router.post(
             },
           })
         } else {
-          await prisma.result.create({
+          result = await prisma.result.create({
             data: {
               studentId: parsedStudentId,
               subjectId: subjectRecord.id,
@@ -581,6 +786,22 @@ router.post(
               term: normalizedTerm,
               session: normalizedSession,
               ...(resolvedTeacherId ? { teacherId: resolvedTeacherId } : {}),
+            },
+          })
+        }
+
+        const student = studentMap.get(parsedStudentId)
+        if (student?.parentId) {
+          await sendNotification({
+            userId: student.parentId,
+            title: existingResult ? "Result Updated" : "New Result Uploaded",
+            body: `${student.name}'s result for ${subjectRecord.name} has been ${
+              existingResult ? "updated" : "uploaded"
+            }.`,
+            type: "RESULT",
+            data: {
+              studentId: student.id,
+              resultId: result.id,
             },
           })
         }
@@ -615,18 +836,12 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const studentId = Number(req.params.studentId)
-      const term = String(req.query.term || "").trim()
-      const session = String(req.query.session || "").trim()
+      const requestedTerm = String(req.query.term || "").trim()
+      const requestedSession = String(req.query.session || "").trim()
 
       if (isNaN(studentId)) {
         return res.status(400).json({
           message: "Invalid student ID",
-        })
-      }
-
-      if (!term || !session) {
-        return res.status(400).json({
-          message: "term and session are required",
         })
       }
 
@@ -658,28 +873,89 @@ router.get(
         }
       }
 
-      const results = await prisma.result.findMany({
+      const availableResults = await prisma.result.findMany({
         where: {
           studentId,
-          term,
-          session,
         },
         include: {
           subject: true,
           teacher: true,
         },
-        orderBy: {
-          subject: {
-            name: "asc",
-          },
-        },
+        orderBy: [
+          { session: "desc" },
+          { term: "desc" },
+          { createdAt: "desc" },
+        ],
       })
 
-      const attendance = await prisma.attendance.findMany({
-        where: {
-          studentId,
-        },
-      })
+      if (availableResults.length === 0) {
+        return res.status(200).json({
+          student: {
+            id: student.id,
+            name: student.name,
+            studentId: student.studentId,
+            class: student.class?.name || "-",
+            school: student.school?.name || "-",
+            parent: student.parent?.name || "-",
+            teacherRemark: (student as any).teacherRemark || "",
+            principalRemark: (student as any).principalRemark || "",
+          },
+          report: {
+            term: requestedTerm,
+            session: requestedSession,
+            totalSubjects: 0,
+            totalScore: 0,
+            averageScore: 0,
+            overallGrade: "F",
+            overallRemark: "No results available yet",
+            attendanceRate: 0,
+            subjects: [],
+          },
+        })
+      }
+
+      let term = requestedTerm
+      let session = requestedSession
+
+      if (!term || !session) {
+        const latest = availableResults[0]
+        term = term || String(latest.term || "").trim()
+        session = session || String(latest.session || "").trim()
+      }
+
+      const results = availableResults
+        .filter((item) => {
+          const itemTerm = String(item.term || "").trim()
+          const itemSession = String(item.session || "").trim()
+
+          if (term && itemTerm !== term) return false
+          if (session && itemSession !== session) return false
+          return true
+        })
+        .sort((a, b) => {
+          const aName = a.subject?.name || ""
+          const bName = b.subject?.name || ""
+          return aName.localeCompare(bName)
+        })
+
+      const attendanceWhere: any = { studentId }
+      if (term) {
+        attendanceWhere.term = term
+      }
+      if (session) {
+        attendanceWhere.session = session
+      }
+
+      let attendance: any[] = []
+      try {
+        attendance = await prisma.attendance.findMany({
+          where: attendanceWhere,
+        })
+      } catch {
+        attendance = await prisma.attendance.findMany({
+          where: { studentId },
+        })
+      }
 
       const totalScore = results.reduce(
         (sum, item) => sum + Number(item.score || 0),
@@ -698,35 +974,23 @@ router.get(
           ? Number(((presentCount / attendance.length) * 100).toFixed(2))
           : 0
 
-      const getGrade = (score: number) => {
-        if (score >= 70) return "A"
-        if (score >= 60) return "B"
-        if (score >= 50) return "C"
-        if (score >= 45) return "D"
-        if (score >= 40) return "E"
-        return "F"
-      }
+      const subjectResults = results.map((item) => {
+        const numericScore = Number(item.score || 0)
 
-      const getRemark = (score: number) => {
-        if (score >= 70) return "Excellent"
-        if (score >= 60) return "Very Good"
-        if (score >= 50) return "Good"
-        if (score >= 45) return "Fair"
-        if (score >= 40) return "Pass"
-        return "Fail"
-      }
+        return {
+          id: item.id,
+          subject: item.subject?.name || "Unknown Subject",
+          score: numericScore,
+          grade: scoreToGrade(numericScore),
+          remark: scoreToRemark(numericScore),
+          teacher: item.teacher?.name || "-",
+          term: item.term || term,
+          session: item.session || session,
+        }
+      })
 
-      const subjectResults = results.map((item) => ({
-        id: item.id,
-        subject: item.subject?.name || "Unknown Subject",
-        score: item.score,
-        grade: getGrade(Number(item.score || 0)),
-        remark: getRemark(Number(item.score || 0)),
-        teacher: item.teacher?.name || "-",
-      }))
-
-      const overallGrade = getGrade(averageScore)
-      const overallRemark = getRemark(averageScore)
+      const overallGrade = scoreToGrade(averageScore)
+      const overallRemark = overallRemarkFromAverage(averageScore)
 
       return res.status(200).json({
         student: {
@@ -771,6 +1035,7 @@ router.put(
   "/remarks/:studentId",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const studentId = Number(req.params.studentId)
@@ -797,15 +1062,17 @@ router.put(
       const updateData: any = {}
 
       if (req.user?.role === "TEACHER") {
-        updateData.teacherRemark = String(teacherRemark || "")
+        if (teacherRemark !== undefined) {
+          updateData.teacherRemark = String(teacherRemark || "")
+        }
       }
 
       if (req.user?.role === "SCHOOL_ADMIN") {
         if (teacherRemark !== undefined) {
-          updateData.teacherRemark = String(teacherRemark)
+          updateData.teacherRemark = String(teacherRemark || "")
         }
         if (principalRemark !== undefined) {
-          updateData.principalRemark = String(principalRemark)
+          updateData.principalRemark = String(principalRemark || "")
         }
       }
 
@@ -835,6 +1102,7 @@ router.delete(
   "/:id",
   authMiddleware,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
+  requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
