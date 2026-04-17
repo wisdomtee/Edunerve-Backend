@@ -132,7 +132,7 @@ router.post(
         subscriptionStatus,
       } = req.body
 
-      if (!schoolName || String(schoolName).trim().isEmpty) {
+      if (!schoolName || !String(schoolName).trim()) {
         return res.status(400).json({
           message: "schoolName is required",
         })
@@ -161,10 +161,7 @@ router.post(
 
       const existingSchool = await prisma.school.findFirst({
         where: {
-          OR: [
-            { name: cleanSchoolName },
-            { email: cleanSchoolEmail },
-          ],
+          OR: [{ name: cleanSchoolName }, { email: cleanSchoolEmail }],
         },
         select: {
           id: true,
@@ -360,10 +357,7 @@ router.post(
 
           const existingSchool = await prisma.school.findFirst({
             where: {
-              OR: [
-                { name: schoolName },
-                { email: cleanSchoolEmail },
-              ],
+              OR: [{ name: schoolName }, { email: cleanSchoolEmail }],
             },
             select: {
               id: true,

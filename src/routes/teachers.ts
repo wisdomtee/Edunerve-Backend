@@ -307,7 +307,6 @@ router.post(
         await tx.notification.create({
           data: {
             title: "Teacher Created",
-            message: `${name} was added as a teacher successfully.`,
             userId: req.user!.id,
           },
         })

@@ -28,10 +28,21 @@ router.post("/login", async (req: Request, res: Response) => {
     console.log("School Code:", normalizedSchoolCode)
     console.log("Email:", normalizedEmail)
 
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        message: "JWT secret is not configured",
+      })
+    }
+
     // 🔥 FIND SCHOOL FIRST
     const school = await prisma.school.findUnique({
       where: {
         schoolCode: normalizedSchoolCode,
+      },
+      select: {
+        id: true,
+        name: true,
+        schoolCode: true,
       },
     })
 
@@ -82,21 +93,20 @@ router.post("/login", async (req: Request, res: Response) => {
       })
     }
 
-    if (!process.env.JWT_SECRET) {
-      return res.status(500).json({
-        message: "JWT secret is not configured",
-      })
+    const tokenPayload = {
+      id: Number(user.id),
+      role: String(user.role),
+      schoolId:
+        user.schoolId !== null && user.schoolId !== undefined
+          ? Number(user.schoolId)
+          : null,
+      email: user.email,
+      name: user.name,
     }
 
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        schoolId: user.schoolId ?? null,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    )
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    })
 
     let linkedStudent: { id: number; name: string } | null = null
 
@@ -136,12 +146,20 @@ router.post("/login", async (req: Request, res: Response) => {
       message: "Login successful",
       token,
       user: {
-        id: user.id,
+        id: Number(user.id),
         name: user.name,
         email: user.email,
         role: user.role,
-        schoolId: user.schoolId ?? null,
+        schoolId:
+          user.schoolId !== null && user.schoolId !== undefined
+            ? Number(user.schoolId)
+            : null,
         mustChangePassword: user.mustChangePassword,
+        school: {
+          id: Number(school.id),
+          name: school.name,
+          schoolCode: school.schoolCode,
+        },
       },
       linkedStudent,
     })
@@ -154,7 +172,6 @@ router.post("/login", async (req: Request, res: Response) => {
     })
   }
 })
-
 
 // =======================
 // CHANGE PASSWORD
@@ -191,6 +208,9 @@ router.post("/change-password", async (req: Request, res: Response) => {
     const school = await prisma.school.findUnique({
       where: {
         schoolCode: normalizedSchoolCode,
+      },
+      select: {
+        id: true,
       },
     })
 

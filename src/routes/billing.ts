@@ -973,7 +973,7 @@ router.patch("/invoices/:id/status", authMiddleware, async (req, res) => {
         })
       }
 
-      if (invoice.status === "PAID" && status !== "PAID") {
+      if (invoice.status === "PAID") {
         return res.status(400).json({
           message: "Paid invoice cannot be changed to this status from this route",
         })

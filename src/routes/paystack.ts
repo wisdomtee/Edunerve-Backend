@@ -495,11 +495,14 @@ router.get("/verify", authMiddleware, async (req, res) => {
       notes: "Verified from Paystack verification endpoint",
     })
 
+    const invoiceResponse =
+      "updatedInvoice" in result ? result.updatedInvoice : result.invoice
+
     return res.json({
       message: result.alreadyPaid
         ? "Payment already verified earlier"
         : "Payment verified successfully",
-      invoice: result.updatedInvoice || result.invoice,
+      invoice: invoiceResponse,
       payment: result.payment || null,
       receipt: result.receipt || null,
       billingState: result.updatedBillingState || null,

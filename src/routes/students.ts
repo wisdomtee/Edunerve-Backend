@@ -603,9 +603,6 @@ router.post(
       await prisma.notification.create({
         data: {
           title: "New Student Registered",
-          message: `${student.name} has been added successfully to ${
-            classRecord.name || "a class"
-          }.`,
           userId: req.user.id,
         },
       })

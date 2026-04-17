@@ -1,15 +1,26 @@
 import { Request, Response, NextFunction } from "express"
 import jwt, { JwtPayload } from "jsonwebtoken"
 
+export type UserRole =
+  | "SUPER_ADMIN"
+  | "SCHOOL_ADMIN"
+  | "TEACHER"
+  | "PARENT"
+
 export interface AuthUser {
   id: number
-  role: string
+  role: UserRole | string
   schoolId?: number | null
   email?: string
   name?: string
 }
 
-export interface AuthRequest extends Request {
+export interface AuthRequest<
+  P = any,
+  ResBody = any,
+  ReqBody = any,
+  ReqQuery = any
+> extends Request<P, ResBody, ReqBody, ReqQuery> {
   user?: AuthUser
 }
 
@@ -78,7 +89,8 @@ export const authMiddleware = (
     const schoolId =
       typeof decoded.schoolId === "number"
         ? decoded.schoolId
-        : typeof decoded.schoolId === "string" && !isNaN(Number(decoded.schoolId))
+        : typeof decoded.schoolId === "string" &&
+          !isNaN(Number(decoded.schoolId))
         ? Number(decoded.schoolId)
         : null
 
@@ -107,7 +119,7 @@ export const authMiddleware = (
   }
 }
 
-export const requireRole = (...roles: string[]) => {
+export const requireRole = (...roles: UserRole[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
@@ -116,7 +128,7 @@ export const requireRole = (...roles: string[]) => {
       return
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!roles.includes(req.user.role as UserRole)) {
       res.status(403).json({
         message: "Access denied",
       })

@@ -41,7 +41,6 @@ export default function createMessageRoutes(io: Server) {
         }
       }
 
-      // optional school isolation for non-super-admin
       if (userRole !== "SUPER_ADMIN" && schoolId) {
         where = {
           AND: [
@@ -73,7 +72,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // GET /messages/inbox
   router.get("/inbox", async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user?.id
@@ -110,7 +108,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // GET /messages/sent
   router.get("/sent", async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user?.id
@@ -147,7 +144,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // GET /messages/conversation/:userId
   router.get("/conversation/:userId", async (req: AuthRequest, res: Response) => {
     try {
       const currentUserId = req.user?.id
@@ -208,7 +204,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // GET /messages/:id
   router.get("/:id", async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user?.id
@@ -248,7 +243,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // POST /messages/send
   router.post("/send", async (req: AuthRequest, res: Response) => {
     try {
       const senderId = req.user?.id
@@ -332,7 +326,6 @@ export default function createMessageRoutes(io: Server) {
           data: {
             userId: numericReceiverId,
             title: "New Message",
-            message: `${sender.name || "Someone"} sent you a message`,
           },
         })
       } catch (notificationError) {
@@ -358,7 +351,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // PATCH /messages/:id/read
   router.patch("/:id/read", async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user?.id
@@ -411,8 +403,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // PUT /messages/:id/read
-  // kept for backward compatibility with existing frontend
   router.put("/:id/read", async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user?.id
@@ -465,7 +455,6 @@ export default function createMessageRoutes(io: Server) {
     }
   })
 
-  // DELETE /messages/:id
   router.delete("/:id", async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user?.id
