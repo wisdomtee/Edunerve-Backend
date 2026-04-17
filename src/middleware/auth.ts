@@ -1,76 +1,128 @@
 import { Request, Response, NextFunction } from "express"
-import jwt from "jsonwebtoken"
+import jwt, { JwtPayload } from "jsonwebtoken"
 
 export interface AuthUser {
   id: number
   role: string
   schoolId?: number | null
+  email?: string
+  name?: string
 }
 
 export interface AuthRequest extends Request {
   user?: AuthUser
 }
 
+interface TokenPayload extends JwtPayload {
+  id?: number | string
+  role?: string
+  schoolId?: number | string | null
+  email?: string
+  name?: string
+}
+
 export const authMiddleware = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): void => {
   try {
     const authHeader = req.headers.authorization
 
     if (!authHeader) {
-      return res.status(401).json({
+      res.status(401).json({
         message: "Unauthorized",
       })
+      return
     }
 
     if (!authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
+      res.status(401).json({
         message: "Invalid authorization format",
       })
+      return
     }
 
-    const token = authHeader.split(" ")[1]
+    const token = authHeader.split(" ")[1]?.trim()
 
     if (!token) {
-      return res.status(401).json({
+      res.status(401).json({
         message: "Unauthorized",
       })
+      return
     }
 
     if (!process.env.JWT_SECRET) {
-      return res.status(500).json({
+      res.status(500).json({
         message: "JWT secret is not configured",
       })
+      return
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET) as jwt.JwtPayload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET) as TokenPayload
 
-    if (
-      !decoded ||
-      typeof decoded !== "object" ||
-      typeof decoded.id !== "number" ||
-      typeof decoded.role !== "string"
-    ) {
-      return res.status(401).json({
+    if (!decoded || typeof decoded !== "object") {
+      res.status(401).json({
         message: "Invalid token payload",
       })
+      return
+    }
+
+    const userId =
+      typeof decoded.id === "number"
+        ? decoded.id
+        : typeof decoded.id === "string" && !isNaN(Number(decoded.id))
+        ? Number(decoded.id)
+        : null
+
+    const schoolId =
+      typeof decoded.schoolId === "number"
+        ? decoded.schoolId
+        : typeof decoded.schoolId === "string" && !isNaN(Number(decoded.schoolId))
+        ? Number(decoded.schoolId)
+        : null
+
+    if (userId === null || typeof decoded.role !== "string") {
+      res.status(401).json({
+        message: "Invalid token payload",
+      })
+      return
     }
 
     req.user = {
-      id: decoded.id,
+      id: userId,
       role: decoded.role,
-      schoolId:
-        typeof decoded.schoolId === "number" ? decoded.schoolId : null,
+      schoolId,
+      email: typeof decoded.email === "string" ? decoded.email : undefined,
+      name: typeof decoded.name === "string" ? decoded.name : undefined,
     }
 
     next()
   } catch (error) {
     console.error("AUTH ERROR:", error)
 
-    return res.status(401).json({
+    res.status(401).json({
       message: "Invalid or expired token",
     })
+  }
+}
+
+export const requireRole = (...roles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        message: "Unauthorized",
+      })
+      return
+    }
+
+    if (!roles.includes(req.user.role)) {
+      res.status(403).json({
+        message: "Access denied",
+      })
+      return
+    }
+
+    next()
   }
 }
