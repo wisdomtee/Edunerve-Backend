@@ -274,4 +274,21 @@ router.post("/change-password", async (req: Request, res: Response) => {
   }
 })
 
+router.get("/debug/schools", async (req, res) => {
+  try {
+    const schools = await prisma.school.findMany({
+      select: {
+        id: true,
+        name: true,
+        schoolCode: true,
+      },
+    })
+
+    res.json(schools)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Error fetching schools" })
+  }
+})
+
 export default router
