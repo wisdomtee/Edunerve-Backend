@@ -5,18 +5,33 @@ import prisma from "../prisma"
 
 const router = Router()
 
+const normalizeEmail = (value: unknown): string => {
+  return String(value || "").trim().toLowerCase()
+}
+
+const normalizePassword = (value: unknown): string => {
+  return String(value || "").trim()
+}
+
+const normalizeSchoolCode = (value: unknown): string => {
+  return String(value || "").trim().toUpperCase()
+}
+
+const toSafeErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message
+  return "Unknown error"
+}
+
 // =======================
 // LOGIN (UPDATED WITH SCHOOL CODE)
 // =======================
 router.post("/login", async (req: Request, res: Response) => {
   try {
-    const { email, password, schoolCode } = req.body
+    const { email, password, schoolCode } = req.body ?? {}
 
-    const normalizedEmail = String(email || "").trim().toLowerCase()
-    const normalizedPassword = String(password || "").trim()
-    const normalizedSchoolCode = String(schoolCode || "")
-      .trim()
-      .toUpperCase()
+    const normalizedEmail = normalizeEmail(email)
+    const normalizedPassword = normalizePassword(password)
+    const normalizedSchoolCode = normalizeSchoolCode(schoolCode)
 
     if (!normalizedEmail || !normalizedPassword || !normalizedSchoolCode) {
       return res.status(400).json({
@@ -27,6 +42,8 @@ router.post("/login", async (req: Request, res: Response) => {
     console.log("🔐 LOGIN ATTEMPT")
     console.log("School Code:", normalizedSchoolCode)
     console.log("Email:", normalizedEmail)
+    console.log("Database URL exists:", !!process.env.DATABASE_URL)
+    console.log("JWT Secret exists:", !!process.env.JWT_SECRET)
 
     if (!process.env.JWT_SECRET) {
       return res.status(500).json({
@@ -35,7 +52,7 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 
     // 🔥 FIND SCHOOL FIRST
-    const school = await prisma.school.findUnique({
+    const school = await prisma.school.findFirst({
       where: {
         schoolCode: normalizedSchoolCode,
       },
@@ -52,13 +69,13 @@ router.post("/login", async (req: Request, res: Response) => {
       })
     }
 
+    console.log("School found:", school.name)
+
     // 🔥 FIND USER WITH SCHOOL ID
+    // We avoid `mode: "insensitive"` here to reduce production Prisma issues.
     const user = await prisma.user.findFirst({
       where: {
-        email: {
-          equals: normalizedEmail,
-          mode: "insensitive",
-        },
+        email: normalizedEmail,
         schoolId: school.id,
       },
       select: {
@@ -77,6 +94,13 @@ router.post("/login", async (req: Request, res: Response) => {
     if (!user) {
       return res.status(404).json({
         message: "User not found in this school",
+      })
+    }
+
+    if (!user.password) {
+      console.error("LOGIN ERROR: User has no password hash stored")
+      return res.status(500).json({
+        message: "User password is not configured",
       })
     }
 
@@ -113,32 +137,36 @@ router.post("/login", async (req: Request, res: Response) => {
     // =======================
     // PARENT LINKING
     // =======================
-    if (user.role === "PARENT") {
-      const parent = await prisma.parent.findUnique({
-        where: {
-          userId: user.id,
-        },
-        include: {
-          students: {
-            select: {
-              id: true,
-              name: true,
-            },
-            orderBy: {
-              id: "asc",
+    if (String(user.role).toUpperCase() === "PARENT") {
+      try {
+        const parent = await prisma.parent.findFirst({
+          where: {
+            userId: user.id,
+          },
+          include: {
+            students: {
+              select: {
+                id: true,
+                name: true,
+              },
+              orderBy: {
+                id: "asc",
+              },
             },
           },
-        },
-      })
+        })
 
-      console.log("Parent profile found:", !!parent)
-      console.log("Linked students:", parent?.students?.length || 0)
+        console.log("Parent profile found:", !!parent)
+        console.log("Linked students count:", parent?.students?.length || 0)
 
-      if (parent && parent.students.length > 0) {
-        linkedStudent = {
-          id: parent.students[0].id,
-          name: parent.students[0].name,
+        if (parent && Array.isArray(parent.students) && parent.students.length > 0) {
+          linkedStudent = {
+            id: Number(parent.students[0].id),
+            name: parent.students[0].name,
+          }
         }
+      } catch (parentError) {
+        console.error("PARENT LINK ERROR:", parentError)
       }
     }
 
@@ -154,7 +182,7 @@ router.post("/login", async (req: Request, res: Response) => {
           user.schoolId !== null && user.schoolId !== undefined
             ? Number(user.schoolId)
             : null,
-        mustChangePassword: user.mustChangePassword,
+        mustChangePassword: Boolean(user.mustChangePassword),
         school: {
           id: Number(school.id),
           name: school.name,
@@ -163,12 +191,12 @@ router.post("/login", async (req: Request, res: Response) => {
       },
       linkedStudent,
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("LOGIN ERROR:", error)
 
     return res.status(500).json({
       message: "Server error",
-      error: error?.message || "Unknown error",
+      error: toSafeErrorMessage(error),
     })
   }
 })
@@ -178,14 +206,12 @@ router.post("/login", async (req: Request, res: Response) => {
 // =======================
 router.post("/change-password", async (req: Request, res: Response) => {
   try {
-    const { email, schoolCode, currentPassword, newPassword } = req.body
+    const { email, schoolCode, currentPassword, newPassword } = req.body ?? {}
 
-    const normalizedEmail = String(email || "").trim().toLowerCase()
-    const normalizedCurrentPassword = String(currentPassword || "").trim()
-    const normalizedNewPassword = String(newPassword || "").trim()
-    const normalizedSchoolCode = String(schoolCode || "")
-      .trim()
-      .toUpperCase()
+    const normalizedEmail = normalizeEmail(email)
+    const normalizedCurrentPassword = normalizePassword(currentPassword)
+    const normalizedNewPassword = normalizePassword(newPassword)
+    const normalizedSchoolCode = normalizeSchoolCode(schoolCode)
 
     if (
       !normalizedEmail ||
@@ -205,7 +231,7 @@ router.post("/change-password", async (req: Request, res: Response) => {
       })
     }
 
-    const school = await prisma.school.findUnique({
+    const school = await prisma.school.findFirst({
       where: {
         schoolCode: normalizedSchoolCode,
       },
@@ -222,10 +248,7 @@ router.post("/change-password", async (req: Request, res: Response) => {
 
     const user = await prisma.user.findFirst({
       where: {
-        email: {
-          equals: normalizedEmail,
-          mode: "insensitive",
-        },
+        email: normalizedEmail,
         schoolId: school.id,
       },
       select: {
@@ -237,6 +260,12 @@ router.post("/change-password", async (req: Request, res: Response) => {
     if (!user) {
       return res.status(404).json({
         message: "User not found",
+      })
+    }
+
+    if (!user.password) {
+      return res.status(500).json({
+        message: "User password is not configured",
       })
     }
 
@@ -264,17 +293,20 @@ router.post("/change-password", async (req: Request, res: Response) => {
     return res.status(200).json({
       message: "Password changed successfully",
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("CHANGE PASSWORD ERROR:", error)
 
     return res.status(500).json({
       message: "Failed to change password",
-      error: error?.message || "Unknown error",
+      error: toSafeErrorMessage(error),
     })
   }
 })
 
-router.get("/debug/schools", async (req, res) => {
+// =======================
+// DEBUG SCHOOLS
+// =======================
+router.get("/debug/schools", async (_req: Request, res: Response) => {
   try {
     const schools = await prisma.school.findMany({
       select: {
@@ -282,12 +314,19 @@ router.get("/debug/schools", async (req, res) => {
         name: true,
         schoolCode: true,
       },
+      orderBy: {
+        id: "asc",
+      },
     })
 
-    res.json(schools)
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Error fetching schools" })
+    return res.status(200).json(schools)
+  } catch (error: unknown) {
+    console.error("DEBUG SCHOOLS ERROR:", error)
+
+    return res.status(500).json({
+      message: "Error fetching schools",
+      error: toSafeErrorMessage(error),
+    })
   }
 })
 
