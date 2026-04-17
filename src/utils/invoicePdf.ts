@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit"
+import type PDFKit from "pdfkit"
 
 export type InvoiceParty = {
   name: string
@@ -77,7 +78,7 @@ function drawLabelValue(
   value: string,
   x: number,
   y: number,
-  width = 220,
+  width = 220
 ) {
   doc
     .font("Helvetica-Bold")
@@ -117,7 +118,7 @@ function calculateTotals(data: InvoiceData) {
 }
 
 export async function generateInvoicePdfBuffer(
-  rawData: InvoiceData,
+  rawData: InvoiceData
 ): Promise<Buffer> {
   const data: InvoiceData = {
     currency: "NGN",
@@ -143,7 +144,7 @@ export async function generateInvoicePdfBuffer(
 
     const chunks: Buffer[] = []
 
-    doc.on("data", (chunk) => chunks.push(chunk))
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk))
     doc.on("end", () => resolve(Buffer.concat(chunks)))
     doc.on("error", reject)
 
@@ -184,7 +185,14 @@ export async function generateInvoicePdfBuffer(
 
     // Invoice info
     drawLabelValue(doc, "Invoice No", data.invoiceNumber, 50, 135, 120)
-    drawLabelValue(doc, "Invoice Date", formatDate(data.invoiceDate), 190, 135, 110)
+    drawLabelValue(
+      doc,
+      "Invoice Date",
+      formatDate(data.invoiceDate),
+      190,
+      135,
+      110
+    )
     drawLabelValue(doc, "Due Date", formatDate(data.dueDate), 320, 135, 100)
     drawLabelValue(doc, "Status", data.status || "UNPAID", 440, 135, 100)
 
@@ -224,12 +232,9 @@ export async function generateInvoicePdfBuffer(
     }
 
     // Items table
-    let tableTop = 310
+    const tableTop = 310
 
-    doc
-      .roundedRect(50, tableTop, 495, 28, 4)
-      .fillColor("#EFF6FF")
-      .fill()
+    doc.roundedRect(50, tableTop, 495, 28, 4).fillColor("#EFF6FF").fill()
 
     doc
       .font("Helvetica-Bold")
@@ -292,10 +297,7 @@ export async function generateInvoicePdfBuffer(
     // Totals box
     const totalsTop = y + 18
 
-    doc
-      .roundedRect(310, totalsTop, 235, 110, 6)
-      .fillColor("#F9FAFB")
-      .fill()
+    doc.roundedRect(310, totalsTop, 235, 110, 6).fillColor("#F9FAFB").fill()
 
     doc
       .font("Helvetica")
@@ -306,13 +308,11 @@ export async function generateInvoicePdfBuffer(
         width: 100,
         align: "right",
       })
-
       .text("Discount", 325, totalsTop + 38, { width: 100 })
       .text(money(totals.discount, data.currency), 430, totalsTop + 38, {
         width: 100,
         align: "right",
       })
-
       .text(`Tax (${totals.taxPercent}%)`, 325, totalsTop + 61, { width: 100 })
       .text(money(totals.taxAmount, data.currency), 430, totalsTop + 61, {
         width: 100,
@@ -371,7 +371,7 @@ export async function generateInvoicePdfBuffer(
           {
             width: 495,
             align: "center",
-          },
+          }
         )
     }
 

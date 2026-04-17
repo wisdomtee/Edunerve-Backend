@@ -44,10 +44,6 @@ function calculateInvoiceTotal(invoice: InvoiceData) {
   return total
 }
 
-/**
- * POST /invoices/pdf
- * Returns invoice PDF directly for download
- */
 router.post("/pdf", async (req, res) => {
   try {
     const invoice = req.body as InvoiceData
@@ -84,11 +80,6 @@ router.post("/pdf", async (req, res) => {
   }
 })
 
-/**
- * POST /invoices/preview
- * Returns base64 PDF + email payload preview
- * Useful for frontend preview / external mail providers
- */
 router.post("/preview", async (req, res) => {
   try {
     const invoice = req.body as InvoiceData
@@ -127,10 +118,6 @@ router.post("/preview", async (req, res) => {
   }
 })
 
-/**
- * POST /invoices/send-email
- * Sends invoice directly by email with PDF attachment
- */
 router.post("/send-email", async (req, res) => {
   try {
     const invoice = req.body as InvoiceData

@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from "express"
-import { ParamsDictionary } from "express-serve-static-core"
 import { ParsedQs } from "qs"
 import jwt, { JwtPayload } from "jsonwebtoken"
 
@@ -18,7 +17,7 @@ export interface AuthUser {
 }
 
 export type AuthRequest<
-  P = ParamsDictionary,
+  P = any,
   ResBody = any,
   ReqBody = any,
   ReqQuery = ParsedQs
