@@ -45,6 +45,11 @@ function normalizeNullableString(value: any) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function normalizeSubjectName(value: any) {
+  if (value === undefined || value === null) return ""
+  return String(value).trim().replace(/\s+/g, " ")
+}
+
 function scoreToGrade(score: number) {
   if (score >= 70) return "A"
   if (score >= 60) return "B"
@@ -75,53 +80,68 @@ async function resolveSubjectForSchool(params: {
   schoolId: number
   subject?: any
   subjectId?: any
+  subjectName?: any
 }) {
-  const { schoolId, subject, subjectId } = params
+  const { schoolId, subject, subjectId, subjectName } = params
 
   let subjectRecord = null
 
-  if (
-    subjectId !== undefined &&
-    subjectId !== null &&
-    String(subjectId).trim() !== ""
-  ) {
-    const parsedSubjectId = Number(subjectId)
+  const rawCandidates = [subjectId, subject, subjectName]
 
-    if (isNaN(parsedSubjectId)) {
-      throw new Error("Invalid subjectId")
-    }
+  // 1) Try resolving by numeric id from any of subjectId / subject / subjectName
+  for (const candidate of rawCandidates) {
+    if (candidate === undefined || candidate === null) continue
 
-    subjectRecord = await prisma.subject.findFirst({
-      where: {
-        id: parsedSubjectId,
-        schoolId,
-      },
-    })
-  }
+    const trimmed = String(candidate).trim()
+    if (!trimmed) continue
 
-  if (!subjectRecord && subject) {
-    const subjectName = String(subject).trim()
+    const parsedId = Number(trimmed)
 
-    if (subjectName) {
+    if (!Number.isNaN(parsedId) && String(parsedId) === trimmed) {
       subjectRecord = await prisma.subject.findFirst({
         where: {
-          name: subjectName,
+          id: parsedId,
           schoolId,
         },
       })
 
-      if (!subjectRecord) {
-        subjectRecord = await prisma.subject.create({
-          data: {
-            name: subjectName,
-            schoolId,
-          },
-        })
-      }
+      if (subjectRecord) return subjectRecord
     }
   }
 
-  return subjectRecord
+  // 2) Try resolving by subject name from subject / subjectName
+  const nameCandidates = [subjectName, subject]
+    .map((value) => normalizeSubjectName(value))
+    .filter(Boolean)
+
+  for (const candidateName of nameCandidates) {
+    subjectRecord = await prisma.subject.findFirst({
+      where: {
+        schoolId,
+        name: {
+          equals: candidateName,
+          mode: "insensitive",
+        },
+      },
+    })
+
+    if (subjectRecord) return subjectRecord
+  }
+
+  // 3) Create subject if a valid name was supplied
+  const creatableName = nameCandidates[0]
+
+  if (creatableName) {
+    subjectRecord = await prisma.subject.create({
+      data: {
+        name: creatableName,
+        schoolId,
+      },
+    })
+    return subjectRecord
+  }
+
+  return null
 }
 
 // =======================
@@ -313,8 +333,16 @@ router.post(
   requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { studentId, subject, subjectId, score, term, session, teacherId } =
-        req.body
+      const {
+        studentId,
+        subject,
+        subjectId,
+        subjectName,
+        score,
+        term,
+        session,
+        teacherId,
+      } = req.body
 
       if (!req.user?.schoolId) {
         return res.status(400).json({
@@ -357,11 +385,12 @@ router.post(
         schoolId: student.schoolId,
         subject,
         subjectId,
+        subjectName,
       })
 
       if (!subjectRecord) {
         return res.status(400).json({
-          message: "Unable to resolve subject",
+          message: "Unable to resolve subject. Provide subjectId or subject name.",
         })
       }
 
@@ -405,6 +434,9 @@ router.post(
           where: { id: existingResult.id },
           data: {
             score: parsedScore,
+            subjectId: subjectRecord.id,
+            term: normalizedTerm,
+            session: normalizedSession,
             ...(resolvedTeacherId ? { teacherId: resolvedTeacherId } : {}),
           },
           include: {
@@ -487,7 +519,8 @@ router.patch(
   async (req: AuthRequest, res: Response) => {
     try {
       const id = Number(req.params.id)
-      const { score, subject, subjectId, term, session, teacherId } = req.body
+      const { score, subject, subjectId, subjectName, term, session, teacherId } =
+        req.body
 
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid result id" })
@@ -553,16 +586,21 @@ router.patch(
         data.session = normalizeNullableString(session)
       }
 
-      if (subject !== undefined || subjectId !== undefined) {
+      if (
+        subject !== undefined ||
+        subjectId !== undefined ||
+        subjectName !== undefined
+      ) {
         const subjectRecord = await resolveSubjectForSchool({
           schoolId: existing.schoolId,
           subject,
           subjectId,
+          subjectName,
         })
 
         if (!subjectRecord) {
           return res.status(400).json({
-            message: "Unable to resolve subject",
+            message: "Unable to resolve subject. Provide subjectId or subject name.",
           })
         }
 
@@ -646,8 +684,16 @@ router.post(
   requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
     try {
-      const { classId, subject, subjectId, term, session, teacherId, records } =
-        req.body
+      const {
+        classId,
+        subject,
+        subjectId,
+        subjectName,
+        term,
+        session,
+        teacherId,
+        records,
+      } = req.body
 
       if (!req.user?.schoolId) {
         return res.status(400).json({
@@ -718,11 +764,12 @@ router.post(
         schoolId: classItem.schoolId,
         subject,
         subjectId,
+        subjectName,
       })
 
       if (!subjectRecord) {
         return res.status(400).json({
-          message: "Unable to resolve subject",
+          message: "Unable to resolve subject. Provide subjectId or subject name.",
         })
       }
 
@@ -773,6 +820,9 @@ router.post(
             where: { id: existingResult.id },
             data: {
               score: parsedScore,
+              subjectId: subjectRecord.id,
+              term: normalizedTerm,
+              session: normalizedSession,
               ...(resolvedTeacherId ? { teacherId: resolvedTeacherId } : {}),
             },
           })
@@ -881,11 +931,7 @@ router.get(
           subject: true,
           teacher: true,
         },
-        orderBy: [
-          { session: "desc" },
-          { term: "desc" },
-          { createdAt: "desc" },
-        ],
+        orderBy: [{ session: "desc" }, { term: "desc" }, { createdAt: "desc" }],
       })
 
       if (availableResults.length === 0) {
@@ -939,12 +985,8 @@ router.get(
         })
 
       const attendanceWhere: any = { studentId }
-      if (term) {
-        attendanceWhere.term = term
-      }
-      if (session) {
-        attendanceWhere.session = session
-      }
+      if (term) attendanceWhere.term = term
+      if (session) attendanceWhere.session = session
 
       let attendance: any[] = []
       try {

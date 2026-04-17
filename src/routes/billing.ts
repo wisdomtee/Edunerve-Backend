@@ -543,9 +543,15 @@ router.post("/invoices", authMiddleware, async (req, res) => {
   try {
     const user = getUser(req)
 
-    if (!isSuperAdmin(user)) {
+    if (!user) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      })
+    }
+
+    if (!isSuperAdmin(user) && !isSchoolAdmin(user)) {
       return res.status(403).json({
-        message: "Only super admin can create invoices",
+        message: "Only super admin or school admin can create invoices",
       })
     }
 
@@ -568,6 +574,20 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       return res.status(400).json({
         message: "schoolId is required",
       })
+    }
+
+    if (isSchoolAdmin(user)) {
+      if (!user.schoolId) {
+        return res.status(400).json({
+          message: "No school is attached to this user",
+        })
+      }
+
+      if (Number(user.schoolId) !== parsedSchoolId) {
+        return res.status(403).json({
+          message: "School admin can only create invoices for their own school",
+        })
+      }
     }
 
     const school = await prisma.school.findUnique({
@@ -1299,11 +1319,14 @@ router.patch("/schools/:schoolId/upgrade", authMiddleware, async (req, res) => {
     }
 
     const schoolId = toNumber(req.params.schoolId)
-    const requestedCycle = normalizeBillingCycle(req.body?.billingCycle || "MONTHLY")
+    const requestedCycle = normalizeBillingCycle(
+      req.body?.billingCycle || "MONTHLY"
+    )
     const amount = toNumber(req.body?.amount, 0)
     const now = new Date()
     const nextEnd = calculateNextSubscriptionEnd(now, requestedCycle)
-    const normalizedBillingCycle = requestedCycle === "YEARLY" ? "yearly" : "monthly"
+    const normalizedBillingCycle =
+      requestedCycle === "YEARLY" ? "yearly" : "monthly"
 
     if (!schoolId) {
       return res.status(400).json({ message: "Invalid schoolId" })
@@ -1339,10 +1362,7 @@ router.patch("/schools/:schoolId/upgrade", authMiddleware, async (req, res) => {
         update: {
           plan: "PRO",
           status: "ACTIVE",
-          amount:
-            amount > 0
-              ? amount
-              : school.billingState?.amount || 0,
+          amount: amount > 0 ? amount : school.billingState?.amount || 0,
           currency: "NGN",
           billingCycle: normalizedBillingCycle,
           lastPaymentDate: now,
@@ -1373,10 +1393,7 @@ router.patch("/schools/:schoolId/upgrade", authMiddleware, async (req, res) => {
           status: "ACTIVE",
           startDate: now,
           endDate: nextEnd,
-          amount:
-            amount > 0
-              ? amount
-              : school.billingState?.amount || 0,
+          amount: amount > 0 ? amount : school.billingState?.amount || 0,
         },
       })
 
