@@ -11,7 +11,10 @@
     "postinstall": "prisma generate",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "db:push": "prisma db push",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "seed:production": "ts-node src/scripts/seedProduction.ts",
+    "seed:parent": "ts-node src/scripts/seedParentData.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

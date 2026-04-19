@@ -1,10 +1,15 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
 import { authMiddleware, AuthRequest } from "../middleware/auth"
+import {
+  requireActiveSubscription,
+  requirePlan,
+} from "../middleware/requireSubscription"
 
 const router = Router()
 
 router.use(authMiddleware)
+router.use(requireActiveSubscription)
 
 function toDateLabel(value: Date | string) {
   const d = new Date(value)
@@ -414,9 +419,9 @@ async function analyticsHandler(req: AuthRequest, res: Response) {
   }
 }
 
-router.get("/", analyticsHandler)
-router.get("/overview", analyticsHandler)
-router.get("/stats", analyticsHandler)
-router.get("/dashboard", analyticsHandler)
+router.get("/", requirePlan("PRO"), analyticsHandler)
+router.get("/overview", requirePlan("PRO"), analyticsHandler)
+router.get("/stats", requirePlan("PRO"), analyticsHandler)
+router.get("/dashboard", requirePlan("PRO"), analyticsHandler)
 
 export default router
