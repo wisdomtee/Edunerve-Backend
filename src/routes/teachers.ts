@@ -1,9 +1,9 @@
 import { Router, Response } from "express"
 import bcrypt from "bcryptjs"
 import prisma from "../prisma"
-import { authMiddleware, AuthRequest } from "../middleware/auth"
-import { authorizeRoles } from "../middleware/authorize"
-import { requireActiveSubscription } from "../middleware/subscription"
+import { authMiddleware, AuthRequest } from "../middlewares/auth"
+import { authorizeRoles } from "../middlewares/authorize"
+import { requireActiveSubscription } from "../middlewares/subscription"
 
 const router = Router()
 

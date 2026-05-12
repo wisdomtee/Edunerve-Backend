@@ -14,15 +14,20 @@ export async function sendSchoolOnboardingEmail({
   password: string
 }) {
   const transporter = nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // STARTTLS — required for port 587
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
+    tls: {
+      rejectUnauthorized: false, // allows connection on local dev
+    },
   })
 
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+    from: process.env.EMAIL_FROM || `EduNerve <${process.env.EMAIL_USER}>`,
     to,
     subject: "EduNerve School Login Details",
     html: `

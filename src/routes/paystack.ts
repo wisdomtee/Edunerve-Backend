@@ -1,7 +1,7 @@
 import express from "express"
 import crypto from "crypto"
 import prisma from "../prisma"
-import { authMiddleware } from "../middleware/auth"
+import { authMiddleware } from "../middlewares/auth"
 
 const router = express.Router()
 

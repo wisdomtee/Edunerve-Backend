@@ -17,6 +17,7 @@
     "seed:parent": "ts-node src/scripts/seedParentData.ts"
   },
   "dependencies": {
+    "@daily-co/daily-js": "^0.87.0",
     "@prisma/client": "^5.22.0",
     "@types/node": "^25.5.0",
     "@types/recharts": "^1.8.29",

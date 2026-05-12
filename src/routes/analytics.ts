@@ -1,10 +1,10 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
-import { authMiddleware, AuthRequest } from "../middleware/auth"
+import { authMiddleware, AuthRequest } from "../middlewares/auth"
 import {
   requireActiveSubscription,
   requirePlan,
-} from "../middleware/requireSubscription"
+} from "../middlewares/requireSubscription"
 
 const router = Router()
 

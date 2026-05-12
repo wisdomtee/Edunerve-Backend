@@ -1,10 +1,11 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
-import { authMiddleware, AuthRequest } from "../middleware/auth"
-import { authorizeRoles } from "../middleware/authorize"
-import { requireActiveSubscription } from "../middleware/subscription"
-import upload from "../middleware/upload"
-import { enforceSameSchool } from "../middleware/school"
+import { authMiddleware, AuthRequest } from "../middlewares/auth"
+import { authorizeRoles } from "../middlewares/authorize"
+import { requireActiveSubscription } from "../middlewares/subscription"
+import upload from "../middlewares/upload"
+import { enforceSameSchool } from "../middlewares/school"
+import { checkSchoolActive } from "../middlewares/schoolStatus"
 
 const router = Router()
 
@@ -59,9 +60,7 @@ async function getStudentWhereClause(req: AuthRequest) {
     const teacher = await getTeacherProfile(req)
 
     if (!teacher) {
-      return {
-        id: -1,
-      }
+      return { id: -1 }
     }
 
     return {
@@ -76,9 +75,7 @@ async function getStudentWhereClause(req: AuthRequest) {
     const parent = await getParentProfile(req)
 
     if (!parent) {
-      return {
-        id: -1,
-      }
+      return { id: -1 }
     }
 
     return {
@@ -99,6 +96,7 @@ async function getStudentWhereClause(req: AuthRequest) {
 router.get(
   "/",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -147,13 +145,14 @@ router.get(
         },
       })
 
-      const formattedStudents = students.map((student) => ({
+      const formattedStudents = students.map((student: any) => ({
         id: student.id,
         name: student.name,
         studentId: student.studentId,
         parentId: student.parentId,
         classId: student.classId,
         schoolId: student.schoolId,
+        passportUrl: student.passportUrl || null,
         createdAt: student.createdAt,
         updatedAt: student.updatedAt,
         school: student.school,
@@ -166,21 +165,23 @@ router.get(
       return res.status(200).json(formattedStudents)
     } catch (error: any) {
       console.error("GET STUDENTS ERROR:", error)
-      return res.status(
-        error.message === "Unauthorized"
-          ? 401
-          : error.message === "Forbidden"
-          ? 403
-          : 500
-      ).json({
-        message:
+      return res
+        .status(
           error.message === "Unauthorized"
-            ? "Unauthorized"
+            ? 401
             : error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to fetch students",
-        error: error.message,
-      })
+            ? 403
+            : 500
+        )
+        .json({
+          message:
+            error.message === "Unauthorized"
+              ? "Unauthorized"
+              : error.message === "Forbidden"
+              ? "Forbidden"
+              : "Failed to fetch students",
+          error: error.message,
+        })
     }
   }
 )
@@ -188,29 +189,22 @@ router.get(
 router.get(
   "/parents",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
       if (!req.user) {
-        return res.status(401).json({
-          message: "Unauthorized",
-        })
+        return res.status(401).json({ message: "Unauthorized" })
       }
 
       let where: any = {}
 
-      if (req.user.role === "SUPER_ADMIN") {
-        where = {}
-      } else {
+      if (req.user.role !== "SUPER_ADMIN") {
         if (req.user.schoolId === null || req.user.schoolId === undefined) {
-          return res.status(403).json({
-            message: "Forbidden",
-          })
+          return res.status(403).json({ message: "Forbidden" })
         }
 
-        where = {
-          schoolId: req.user.schoolId,
-        }
+        where = { schoolId: req.user.schoolId }
       }
 
       const parents = await prisma.parent.findMany({
@@ -242,6 +236,7 @@ router.get(
 router.get(
   "/:id/ranking",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -253,9 +248,7 @@ router.get(
 
       const student = await prisma.student.findUnique({
         where: { id },
-        include: {
-          class: true,
-        },
+        include: { class: true },
       })
 
       if (!student) {
@@ -300,9 +293,7 @@ router.get(
           classId: student.classId,
           schoolId: student.schoolId,
         },
-        include: {
-          results: true,
-        },
+        include: { results: true },
       })
 
       const ranking = classmates
@@ -328,7 +319,6 @@ router.get(
           if (b.averageScore !== a.averageScore) {
             return b.averageScore - a.averageScore
           }
-
           return a.name.localeCompare(b.name)
         })
 
@@ -362,6 +352,7 @@ router.get(
 router.get(
   "/:id",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER", "PARENT"),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -375,24 +366,13 @@ router.get(
         where: { id },
         include: {
           school: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
           class: {
-            select: {
-              id: true,
-              name: true,
-              teacherId: true,
-            },
+            select: { id: true, name: true, teacherId: true },
           },
           parent: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+            select: { id: true, name: true, email: true },
           },
           results: {
             include: {
@@ -436,6 +416,7 @@ router.get(
         parentId: student.parentId,
         classId: student.classId,
         schoolId: student.schoolId,
+        passportUrl: student.passportUrl || null,
         createdAt: student.createdAt,
         updatedAt: student.updatedAt,
         school: student.school,
@@ -448,9 +429,7 @@ router.get(
       console.error("GET STUDENT ERROR:", error)
       return res.status(error.message === "Forbidden" ? 403 : 500).json({
         message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to fetch student",
+          error.message === "Forbidden" ? "Forbidden" : "Failed to fetch student",
         error: error.message,
       })
     }
@@ -460,28 +439,23 @@ router.get(
 router.post(
   "/create",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, classId, parentId, studentId } = req.body
+      const { name, classId, parentId, studentId, passportUrl } = req.body
 
       if (!req.user) {
-        return res.status(401).json({
-          message: "Unauthorized",
-        })
+        return res.status(401).json({ message: "Unauthorized" })
       }
 
       if (!name || !classId) {
-        return res.status(400).json({
-          message: "name and classId are required",
-        })
+        return res.status(400).json({ message: "name and classId are required" })
       }
 
       const parsedClassId = Number(classId)
       if (isNaN(parsedClassId)) {
-        return res.status(400).json({
-          message: "Valid classId is required",
-        })
+        return res.status(400).json({ message: "Valid classId is required" })
       }
 
       const classRecord = await prisma.class.findUnique({
@@ -489,9 +463,7 @@ router.post(
       })
 
       if (!classRecord) {
-        return res.status(404).json({
-          message: "Class not found",
-        })
+        return res.status(404).json({ message: "Class not found" })
       }
 
       let targetSchoolId: number
@@ -500,9 +472,7 @@ router.post(
         targetSchoolId = classRecord.schoolId
       } else {
         if (req.user.schoolId === null || req.user.schoolId === undefined) {
-          return res.status(403).json({
-            message: "No school assigned to this user",
-          })
+          return res.status(403).json({ message: "No school assigned to this user" })
         }
 
         if (classRecord.schoolId !== req.user.schoolId) {
@@ -520,9 +490,7 @@ router.post(
         const parsedParentId = Number(parentId)
 
         if (isNaN(parsedParentId)) {
-          return res.status(400).json({
-            message: "Valid parentId is required",
-          })
+          return res.status(400).json({ message: "Valid parentId is required" })
         }
 
         const parent = await prisma.parent.findUnique({
@@ -530,9 +498,7 @@ router.post(
         })
 
         if (!parent) {
-          return res.status(404).json({
-            message: "Parent not found",
-          })
+          return res.status(404).json({ message: "Parent not found" })
         }
 
         if (parent.schoolId !== targetSchoolId) {
@@ -554,15 +520,14 @@ router.post(
       })
 
       if (existingStudent) {
-        return res.status(409).json({
-          message: "Student ID already exists",
-        })
+        return res.status(409).json({ message: "Student ID already exists" })
       }
 
       const student = await prisma.student.create({
         data: {
           name: String(name).trim(),
           studentId: generatedStudentId,
+          passportUrl: passportUrl || null,
           class: {
             connect: { id: parsedClassId },
           },
@@ -579,23 +544,13 @@ router.post(
         },
         include: {
           class: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
           school: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
           parent: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+            select: { id: true, name: true, email: true },
           },
         },
       })
@@ -621,6 +576,7 @@ router.post(
 router.put(
   "/assign-parent/:studentId",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -638,9 +594,7 @@ router.put(
       })
 
       if (!student) {
-        return res.status(404).json({
-          message: "Student not found",
-        })
+        return res.status(404).json({ message: "Student not found" })
       }
 
       enforceSameSchool(req, student.schoolId)
@@ -652,9 +606,7 @@ router.put(
       })
 
       if (!parent) {
-        return res.status(404).json({
-          message: "Parent not found",
-        })
+        return res.status(404).json({ message: "Parent not found" })
       }
 
       if (
@@ -675,29 +627,17 @@ router.put(
       const updatedStudent = await prisma.student.update({
         where: { id: studentId },
         data: {
-          parent: {
-            connect: { id: parsedParentId },
-          },
+          parent: { connect: { id: parsedParentId } },
         },
         include: {
           parent: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+            select: { id: true, name: true, email: true },
           },
           class: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
           school: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
         },
       })
@@ -719,6 +659,7 @@ router.put(
 router.put(
   "/:id",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SCHOOL_ADMIN"),
   requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
@@ -746,9 +687,7 @@ router.put(
 
       if (classId !== undefined) {
         if (classId === null || classId === "") {
-          updateData.class = {
-            disconnect: true,
-          }
+          updateData.class = { disconnect: true }
         } else {
           const parsedClassId = Number(classId)
 
@@ -766,17 +705,13 @@ router.put(
             })
           }
 
-          updateData.class = {
-            connect: { id: parsedClassId },
-          }
+          updateData.class = { connect: { id: parsedClassId } }
         }
       }
 
       if (parentId !== undefined) {
         if (parentId === null || parentId === "") {
-          updateData.parent = {
-            disconnect: true,
-          }
+          updateData.parent = { disconnect: true }
         } else {
           const parsedParentId = Number(parentId)
 
@@ -794,9 +729,7 @@ router.put(
             })
           }
 
-          updateData.parent = {
-            connect: { id: parsedParentId },
-          }
+          updateData.parent = { connect: { id: parsedParentId } }
         }
       }
 
@@ -805,23 +738,13 @@ router.put(
         data: updateData,
         include: {
           parent: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+            select: { id: true, name: true, email: true },
           },
           class: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
           school: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
         },
       })
@@ -831,9 +754,7 @@ router.put(
       console.error("UPDATE STUDENT ERROR:", error)
       return res.status(error.message === "Forbidden" ? 403 : 500).json({
         message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to update student",
+          error.message === "Forbidden" ? "Forbidden" : "Failed to update student",
         error: error.message,
       })
     }
@@ -843,6 +764,7 @@ router.put(
 router.delete(
   "/:id",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SCHOOL_ADMIN"),
   requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
@@ -863,18 +785,14 @@ router.delete(
 
       enforceSameSchool(req, student.schoolId)
 
-      await prisma.student.delete({
-        where: { id },
-      })
+      await prisma.student.delete({ where: { id } })
 
       return res.status(200).json({ message: "Student deleted successfully" })
     } catch (error: any) {
       console.error("DELETE STUDENT ERROR:", error)
       return res.status(error.message === "Forbidden" ? 403 : 500).json({
         message:
-          error.message === "Forbidden"
-            ? "Forbidden"
-            : "Failed to delete student",
+          error.message === "Forbidden" ? "Forbidden" : "Failed to delete student",
         error: error.message,
       })
     }
@@ -884,6 +802,7 @@ router.delete(
 router.post(
   "/:id/photo",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
   requireActiveSubscription,
   upload.single("photo"),
@@ -897,9 +816,7 @@ router.post(
 
       const student = await prisma.student.findUnique({
         where: { id },
-        include: {
-          class: true,
-        },
+        include: { class: true },
       })
 
       if (!student) {
@@ -916,8 +833,20 @@ router.post(
         }
       }
 
-      return res.status(400).json({
-        message: "Photo field is not available in the current Student model",
+      if (!req.file) {
+        return res.status(400).json({ message: "No photo uploaded" })
+      }
+
+      const updatedStudent = await prisma.student.update({
+        where: { id },
+        data: {
+          passportUrl: req.file.filename,
+        } as any,
+      })
+
+      return res.status(200).json({
+        message: "Photo uploaded successfully",
+        student: updatedStudent,
       })
     } catch (error: any) {
       console.error("UPLOAD PHOTO ERROR:", error)
@@ -932,6 +861,7 @@ router.post(
 router.put(
   "/:id/remarks",
   authMiddleware,
+  checkSchoolActive,
   authorizeRoles("SCHOOL_ADMIN", "TEACHER"),
   requireActiveSubscription,
   async (req: AuthRequest, res: Response) => {
@@ -944,9 +874,7 @@ router.put(
 
       const student = await prisma.student.findUnique({
         where: { id },
-        include: {
-          class: true,
-        },
+        include: { class: true },
       })
 
       if (!student) {
@@ -963,8 +891,8 @@ router.put(
         }
       }
 
-      return res.status(400).json({
-        message: "Remarks fields are not available in the current Student model",
+      return res.status(501).json({
+        message: "Remarks are not yet supported. Add remarks fields to the Student model first.",
       })
     } catch (error: any) {
       console.error("SAVE REMARKS ERROR:", error)

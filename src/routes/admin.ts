@@ -1,7 +1,7 @@
 import { Router } from "express"
 import bcrypt from "bcryptjs"
 import prisma from "../prisma"
-import { authMiddleware, AuthRequest } from "../middleware/auth"
+import { authMiddleware, AuthRequest } from "../middlewares/auth"
 import {
   generateTempPassword,
   generateUniqueSchoolCode,

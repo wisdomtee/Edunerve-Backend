@@ -1,9 +1,9 @@
 import { Router, Response } from "express"
 import prisma from "../prisma"
-import { authMiddleware, AuthRequest } from "../middleware/auth"
-import { authorizeRoles } from "../middleware/authorize"
-import { enforceSameSchool } from "../middleware/school"
-import { requireActiveSubscription } from "../middleware/subscription"
+import { authMiddleware, AuthRequest } from "../middlewares/auth"
+import { authorizeRoles } from "../middlewares/authorize"
+import { enforceSameSchool } from "../middlewares/school"
+import { requireActiveSubscription } from "../middlewares/subscription"
 import { sendNotification } from "../services/notificationService"
 
 const router = Router()
