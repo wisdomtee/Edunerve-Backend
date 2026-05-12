@@ -54,7 +54,7 @@ model User {
   email              String        @unique
   password           String
   role               String
-  managedSchools     School[]      @relation("UserManagedSchools")
+  managedSchools     School[]      @relation("ManagedSchools")
   schoolId           Int?
   examResults        ExamResult[]  @relation("StudentExamResults")
   examSessions       ExamSession[]
@@ -62,7 +62,7 @@ model User {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  schoolAdmin      School?        @relation("SchoolAdmin")
+  schoolAdmin      School[]       @relation("SchoolAdmin")
   school           School?        @relation("SchoolUsers", fields: [schoolId], references: [id])
   parents          Parent[]
   teacherProfile   Teacher?
@@ -91,9 +91,9 @@ model School {
   schoolCode String  @unique // NEW
   logoUrl    String?
   isActive   Boolean @default(true)
-  adminId    Int?    @unique
+  adminId    Int?
   admin      User?   @relation("SchoolAdmin", fields: [adminId], references: [id])
-  manager    User?   @relation("UserManagedSchools", fields: [managerId], references: [id])
+  manager    User?   @relation("ManagedSchools", fields: [managerId], references: [id])
 
   plan               PlanType  @default(NORMAL)
   subscriptionPlan   String    @default("NORMAL")
