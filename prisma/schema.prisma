@@ -54,14 +54,15 @@ model User {
   email              String        @unique
   password           String
   role               String
-  managedSchools     School[]      @relation("SchoolAdmin")
+  managedSchools     School[]      @relation("UserManagedSchools")
   schoolId           Int?
-  examResults        ExamResult[]
+  examResults        ExamResult[]  @relation("StudentExamResults")
   examSessions       ExamSession[]
   mustChangePassword Boolean       @default(true)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
+  schoolAdmin      School?        @relation("SchoolAdmin")
   school           School?        @relation("SchoolUsers", fields: [schoolId], references: [id])
   parents          Parent[]
   teacherProfile   Teacher?
@@ -85,12 +86,14 @@ model School {
   name       String
   address    String
   phone      String?
+  managerId  Int?
   email      String? @unique
   schoolCode String  @unique // NEW
   logoUrl    String?
   isActive   Boolean @default(true)
-  adminId    Int?
+  adminId    Int?    @unique
   admin      User?   @relation("SchoolAdmin", fields: [adminId], references: [id])
+  manager    User?   @relation("UserManagedSchools", fields: [managerId], references: [id])
 
   plan               PlanType  @default(NORMAL)
   subscriptionPlan   String    @default("NORMAL")
@@ -314,7 +317,7 @@ model ExamResult {
   answers    String // JSON
   createdAt  DateTime @default(now())
 
-  student User @relation(fields: [studentId], references: [id])
+  student User @relation(fields: [studentId], references: [id], name: "StudentExamResults")
 }
 
 model ExamSession {
