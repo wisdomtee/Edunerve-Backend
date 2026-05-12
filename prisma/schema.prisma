@@ -49,17 +49,20 @@ enum BillingStatus {
 }
 
 model User {
-  id                 Int      @id @default(autoincrement())
+  id                 Int           @id @default(autoincrement())
   name               String
-  email              String   @unique
+  email              String        @unique
   password           String
   role               String
+  managedSchools     School[]      @relation("SchoolAdmin")
   schoolId           Int?
-  mustChangePassword Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  examResults        ExamResult[]
+  examSessions       ExamSession[]
+  mustChangePassword Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  school           School?        @relation(fields: [schoolId], references: [id])
+  school           School?        @relation("SchoolUsers", fields: [schoolId], references: [id])
   parents          Parent[]
   teacherProfile   Teacher?
   deviceTokens     DeviceToken[]
@@ -85,9 +88,9 @@ model School {
   email      String? @unique
   schoolCode String  @unique // NEW
   logoUrl    String?
-  isActive   Boolean  @default(true)
+  isActive   Boolean @default(true)
   adminId    Int?
-  admin      User?    @relation(fields: [adminId], references: [id])
+  admin      User?   @relation("SchoolAdmin", fields: [adminId], references: [id])
 
   plan               PlanType  @default(NORMAL)
   subscriptionPlan   String    @default("NORMAL")
@@ -100,7 +103,7 @@ model School {
 
   billingState SchoolBillingState?
 
-  users         User[]
+  users         User[]         @relation("SchoolUsers")
   teachers      Teacher[]
   parents       Parent[]
   students      Student[]
@@ -249,7 +252,7 @@ model Exam {
   className String
   schoolId  Int
   createdBy Int
-  duration  Int       // in minutes
+  duration  Int // in minutes
 
   startTime DateTime?
   endTime   DateTime? // 🔥 NEW
@@ -258,10 +261,11 @@ model Exam {
 
   questions Question[]
   attempts  ExamAttempt[]
+  results   Result[]
 }
 
 model Question {
-  id       Int    @id @default(autoincrement())
+  id       Int     @id @default(autoincrement())
   examId   Int
   text     String
   question String
@@ -302,25 +306,25 @@ model ExamAttempt {
 }
 
 model ExamResult {
-  id          Int      @id @default(autoincrement())
-  studentId   Int
-  score       Int
-  total       Int
-  percentage  Float
-  answers     String   // JSON
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  studentId  Int
+  score      Int
+  total      Int
+  percentage Float
+  answers    String // JSON
+  createdAt  DateTime @default(now())
 
-  student     User     @relation(fields: [studentId], references: [id])
+  student User @relation(fields: [studentId], references: [id])
 }
 
 model ExamSession {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   studentId   Int
-  startedAt   DateTime @default(now())
+  startedAt   DateTime  @default(now())
   submittedAt DateTime?
-  status      String   @default("ACTIVE") // ACTIVE | SUBMITTED | EXPIRED
+  status      String    @default("ACTIVE") // ACTIVE | SUBMITTED | EXPIRED
 
-  student     User     @relation(fields: [studentId], references: [id])
+  student User @relation(fields: [studentId], references: [id])
 }
 
 model ExamControl {
@@ -355,7 +359,7 @@ model Parent {
 model Student {
   id        Int    @id @default(autoincrement())
   name      String
-  email     String   @unique
+  email     String @unique
   password  String
   studentId String @unique
   classId   Int?
@@ -419,15 +423,16 @@ model Attendance {
 
   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
+
 model ZoomMeeting {
-  id         Int      @id @default(autoincrement())
-  title      String
-  meetingId  String
-  passcode   String?
-  joinUrl    String
-  startTime  DateTime
-  classId    Int?
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  title     String
+  meetingId String
+  passcode  String?
+  joinUrl   String
+  startTime DateTime
+  classId   Int?
+  createdAt DateTime @default(now())
 }
 
 model Result {
@@ -448,7 +453,7 @@ model Result {
   subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   school  School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   teacher Teacher? @relation(fields: [teacherId], references: [id])
-  exam    Exam   @relation(fields: [examId], references: [id])
+  exam    Exam     @relation(fields: [examId], references: [id])
 
   @@index([studentId])
   @@index([schoolId])
