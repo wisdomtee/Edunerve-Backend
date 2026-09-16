@@ -1,5 +1,6 @@
-import { Response, NextFunction } from "express";
-import { AuthRequest } from "./auth.middleware";
+import { Response, NextFunction } from "express"
+import { AuthRequest } from "./auth.middleware"
+import prisma from "../lib/prisma"
 
 export const subscriptionGuard = async (
   req: AuthRequest,
@@ -7,31 +8,43 @@ export const subscriptionGuard = async (
   next: NextFunction
 ) => {
   try {
-    const prisma = (await import("../prisma")).default;
+    const user = req.user
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user?.userId },
-    });
+    if (!user || !user.id) {
+      return res.status(401).json({ message: "Unauthorized" })
+    }
 
-    if (!user?.subscriptionActive) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        subscriptionActive: true,
+        subscriptionExpiresAt: true,
+      }
+    })
+
+    if (!dbUser) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    if (!dbUser.subscriptionActive) {
       return res.status(403).json({
-        message: "Subscription inactive",
-      });
+        message: "Subscription inactive. Please renew your subscription."
+      })
     }
 
     if (
-      user.subscriptionExpiresAt &&
-      new Date(user.subscriptionExpiresAt) < new Date()
+      dbUser.subscriptionExpiresAt &&
+      new Date(dbUser.subscriptionExpiresAt) < new Date()
     ) {
       return res.status(403).json({
-        message: "Subscription expired",
-      });
+        message: "Subscription expired. Please renew your subscription."
+      })
     }
 
-    next();
-  } catch {
-    return res.status(500).json({
-      message: "Server error",
-    });
+    next()
+  } catch (error) {
+    console.error("Subscription guard error:", error)
+    return res.status(500).json({ message: "Internal server error" })
   }
-};
+}

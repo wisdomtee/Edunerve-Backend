@@ -23,13 +23,19 @@ async function main() {
     return
   }
 
-  let parent = await prisma.parent.findFirst({
-    where: {
-      email: user.email,
-      schoolId: user.schoolId,
+  let parent = await prisma.student.create({
+  data: {
+    name,
+    email,
+    password,
+    class: {
+      connect: { id: Number(classId) }
     },
-  })
-
+    school: {
+      connect: { id: Number(schoolId) }
+    }
+  }
+})
   if (!parent) {
     parent = await prisma.parent.create({
       data: {

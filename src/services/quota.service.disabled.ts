@@ -2,7 +2,7 @@ import prisma from "../prisma";
 
 export const checkStudentQuota = async (schoolId: string) => {
   const studentCount = await prisma.student.count({
-    where: { schoolId }
+    where: { id: schoolId }
   });
 
   const subscription = await prisma.schoolSubscription.findFirst({

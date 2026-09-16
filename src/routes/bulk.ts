@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { upload } from "../middleware/upload.middleware";
+import upload from '../middlewares/upload.middleware'
+import { authenticate as authMiddleware } from "../middlewares/auth.middleware"
 import { bulkResultUpload } from "../controllers/bulkResult.controller";
-import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = Router();
 

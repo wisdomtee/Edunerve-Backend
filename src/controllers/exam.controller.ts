@@ -1,5 +1,5 @@
 import { Request, Response } from "express"
-import prisma from "../prisma"
+import prisma from "../lib/prisma"
 
 /* =========================================
    CREATE EXAM + QUESTIONS
@@ -10,12 +10,15 @@ export const createExamWithQuestions = async (
 ) => {
   try {
     const {
-      title,
-      subject,
-      classId,
-      schoolId,
-      questions,
-    } = req.body
+  title,
+  subject,
+  classId,
+  className,
+  schoolId,
+  createdBy,
+  duration,
+  questions,
+} = req.body
 
     // Validation
     if (
@@ -32,31 +35,27 @@ export const createExamWithQuestions = async (
 
     // Create exam
     const exam = await prisma.exam.create({
-      data: {
-        title,
-        subject,
-        classId,
-        schoolId,
-
-        // TEMP USER
-        createdBy: 1,
-
-        questions: {
-          create: questions.map((q: any) => ({
-            question: q.question,
-            optionA: q.optionA,
-            optionB: q.optionB,
-            optionC: q.optionC,
-            optionD: q.optionD,
-            answer: q.answer,
-          })),
-        },
-      },
-
-      include: {
-        questions: true,
-      },
-    })
+  data: {
+    title,
+    subject,
+    classId: Number(classId),
+    className,
+    schoolId: Number(schoolId),
+    createdBy: Number(createdBy),
+    duration: Number(duration),
+    questions: {
+      create: (questions || []).map((q: any) => ({
+        text: q.text,
+        question: q.question,
+        optionA: q.optionA,
+        optionB: q.optionB,
+        optionC: q.optionC,
+        optionD: q.optionD,
+        answer: q.answer,
+      })),
+    },
+  },
+})
 
     return res.status(201).json({
       message: "Exam created successfully",

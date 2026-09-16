@@ -3,25 +3,28 @@ import prisma from "../prisma"
 
 export const getLeaderboard = async (req: Request, res: Response) => {
   try {
-    const { classId } = req.params
-
     const results = await prisma.examAttempt.findMany({
       where: {
         status: "COMPLETED",
-      },
-      include: {
-        student: true,
       },
       orderBy: {
         score: "desc",
       },
     })
 
-    const leaderboard = results.map((r) => ({
-      student: r.student.name,
-      score: r.score,
-      percentage: r.percentage,
-    }))
+    const leaderboard = await Promise.all(
+      results.map(async (r) => {
+        const student = await prisma.student.findUnique({
+          where: { id: r.studentId },
+          select: { name: true },
+        })
+        return {
+          student: student?.name || `Student ${r.studentId}`,
+          score: r.score,
+          percentage: r.percentage,
+        }
+      })
+    )
 
     return res.json({
       leaderboard,

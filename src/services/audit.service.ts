@@ -1,13 +1,9 @@
-import prisma from "../prisma";
+import prisma from "../lib/prisma"
 
-export const logAuditEvent = async (data: any) => {
-  await prisma.auditLog.create({
+export const createAuditLog = async (action: string) => {
+  return await prisma.auditLog.create({
     data: {
-      schoolId: data.schoolId,
-      userId: data.userId,
-      action: data.action,
-      entity: data.entity,
-      metadata: data.metadata || {}
-    }
-  });
-};
+      action,
+    },
+  })
+}

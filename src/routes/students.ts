@@ -443,117 +443,114 @@ router.post(
   authorizeRoles("SUPER_ADMIN", "SCHOOL_ADMIN"),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { name, classId, parentId, studentId, passportUrl } = req.body
+        const {
+          name,
+          email,
+          password,
+          classId,
+          parentId,
+          studentId,
+          passportUrl,
+        } = req.body
 
-      if (!req.user) {
-        return res.status(401).json({ message: "Unauthorized" })
-      }
-
-      if (!name || !classId) {
-        return res.status(400).json({ message: "name and classId are required" })
-      }
-
-      const parsedClassId = Number(classId)
-      if (isNaN(parsedClassId)) {
-        return res.status(400).json({ message: "Valid classId is required" })
-      }
-
-      const classRecord = await prisma.class.findUnique({
-        where: { id: parsedClassId },
-      })
-
-      if (!classRecord) {
-        return res.status(404).json({ message: "Class not found" })
-      }
-
-      let targetSchoolId: number
-
-      if (req.user.role === "SUPER_ADMIN") {
-        targetSchoolId = classRecord.schoolId
-      } else {
-        if (req.user.schoolId === null || req.user.schoolId === undefined) {
-          return res.status(403).json({ message: "No school assigned to this user" })
+        if (!req.user) {
+          return res.status(401).json({ message: "Unauthorized" })
         }
 
-        if (classRecord.schoolId !== req.user.schoolId) {
-          return res.status(403).json({
-            message: "You can only add students to classes in your school",
+        if (!name || !email || !password || !classId) {
+          return res.status(400).json({
+            message: "name, email, password and classId are required",
           })
         }
 
-        targetSchoolId = req.user.schoolId
-      }
-
-      let resolvedParentId: number | null = null
-
-      if (parentId !== undefined && parentId !== null && parentId !== "") {
-        const parsedParentId = Number(parentId)
-
-        if (isNaN(parsedParentId)) {
-          return res.status(400).json({ message: "Valid parentId is required" })
+        const parsedClassId = Number(classId)
+        if (isNaN(parsedClassId)) {
+          return res.status(400).json({ message: "Valid classId is required" })
         }
 
-        const parent = await prisma.parent.findUnique({
-          where: { id: parsedParentId },
+        const classRecord = await prisma.class.findUnique({
+          where: { id: parsedClassId },
         })
 
-        if (!parent) {
-          return res.status(404).json({ message: "Parent not found" })
+        if (!classRecord) {
+          return res.status(404).json({ message: "Class not found" })
         }
 
-        if (parent.schoolId !== targetSchoolId) {
-          return res.status(403).json({
-            message: "Student and parent must belong to the same school",
+        let targetSchoolId: number
+
+        if (req.user.role === "SUPER_ADMIN") {
+          targetSchoolId = classRecord.schoolId
+        } else {
+          if (req.user.schoolId === null || req.user.schoolId === undefined) {
+            return res.status(403).json({ message: "No school assigned to this user" })
+          }
+
+          if (classRecord.schoolId !== req.user.schoolId) {
+            return res.status(403).json({
+              message: "You can only add students to classes in your school",
+            })
+          }
+
+          targetSchoolId = req.user.schoolId
+        }
+
+        let resolvedParentId: number | null = null
+
+        if (parentId !== undefined && parentId !== null && parentId !== "") {
+          const parsedParentId = Number(parentId)
+
+          if (isNaN(parsedParentId)) {
+            return res.status(400).json({ message: "Valid parentId is required" })
+          }
+
+          const parent = await prisma.parent.findUnique({
+            where: { id: parsedParentId },
           })
+
+          if (!parent) {
+            return res.status(404).json({ message: "Parent not found" })
+          }
+
+          if (parent.schoolId !== targetSchoolId) {
+            return res.status(403).json({
+              message: "Student and parent must belong to the same school",
+            })
+          }
+
+          resolvedParentId = parsedParentId
         }
 
-        resolvedParentId = parsedParentId
-      }
+        const generatedStudentId =
+          typeof studentId === "string" && studentId.trim().length > 0
+            ? studentId.trim()
+            : `STU-${Date.now()}`
 
-      const generatedStudentId =
-        typeof studentId === "string" && studentId.trim().length > 0
-          ? studentId.trim()
-          : `STU-${Date.now()}`
+        const existingStudent = await prisma.student.findUnique({
+          where: { studentId: generatedStudentId },
+        })
 
-      const existingStudent = await prisma.student.findUnique({
-        where: { studentId: generatedStudentId },
-      })
+        if (existingStudent) {
+          return res.status(409).json({ message: "Student ID already exists" })
+        }
 
-      if (existingStudent) {
-        return res.status(409).json({ message: "Student ID already exists" })
-      }
+        const bcrypt = await import("bcrypt")
+        const hashedPassword = await bcrypt.hash(password, 10)
 
-      const student = await prisma.student.create({
-        data: {
-          name: String(name).trim(),
-          studentId: generatedStudentId,
-          passportUrl: passportUrl || null,
-          class: {
-            connect: { id: parsedClassId },
+        const student = await prisma.student.create({
+          data: {
+            name,
+            studentId: generatedStudentId,
+            passportUrl,
+            email,
+            password: hashedPassword,
+            parent: resolvedParentId
+              ? { connect: { id: resolvedParentId } }
+              : undefined,
+            class: { connect: { id: parsedClassId } },
+            school: { connect: { id: targetSchoolId } },
           },
-          school: {
-            connect: { id: targetSchoolId },
-          },
-          ...(resolvedParentId !== null
-            ? {
-                parent: {
-                  connect: { id: resolvedParentId },
-                },
-              }
-            : {}),
-        },
-        include: {
-          class: {
-            select: { id: true, name: true },
-          },
-          school: {
-            select: { id: true, name: true },
-          },
-          parent: {
-            select: { id: true, name: true, email: true },
-          },
-        },
-      })
+        })
+
 
       await prisma.notification.create({
         data: {

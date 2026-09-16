@@ -1,7 +1,20 @@
 import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+export interface AuthRequest extends Request {
+  user?: {
+    id: number
+    email: string
+    schoolId: number | null
+    role: string
+  }
+}
+
+export const authenticate = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const authHeader = req.headers.authorization
 
@@ -15,9 +28,12 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
       return res.status(401).json({ message: "Invalid token format" })
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string)
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET as string
+    ) as AuthRequest["user"]
 
-    ;(req as any).user = decoded
+    req.user = decoded
 
     next()
   } catch (error) {

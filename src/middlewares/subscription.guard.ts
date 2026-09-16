@@ -1,46 +1,48 @@
-import { Request, Response, NextFunction } from "express";
-import prisma from "../prisma";
+import { Response, NextFunction } from "express"
+import { AuthRequest } from "./auth.middleware"
+import prisma from "../lib/prisma"
 
-/**
- * Revenue Protection Middleware
- * Ensures school subscription is active
- */
 export const subscriptionGuard = async (
-  req: any,
+  req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const schoolId = req.user?.schoolId;
+    const userId = req.user?.id
 
-    if (!schoolId) {
-      return res.status(403).json({
-        message: "Tenant context missing",
-      });
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" })
     }
 
-    const subscription = await prisma.schoolSubscription.findFirst({
-      where: {
-        schoolId,
-        status: "ACTIVE",
-        endDate: {
-          gte: new Date(),
-        },
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        subscriptionActive: true,
+        subscriptionExpiresAt: true,
       },
-    });
+    })
 
-    if (!subscription) {
+    if (!user?.subscriptionActive) {
       return res.status(403).json({
         message: "Subscription inactive",
-      });
+      })
     }
 
-    req.subscription = subscription;
+    if (
+      user.subscriptionExpiresAt &&
+      new Date(user.subscriptionExpiresAt) < new Date()
+    ) {
+      return res.status(403).json({
+        message: "Subscription expired",
+      })
+    }
 
-    next();
-  } catch {
-    res.status(500).json({
-      message: "Subscription validation failed",
-    });
+    next()
+  } catch (error) {
+    console.error("Subscription guard error:", error)
+    return res.status(500).json({
+      message: "Server error",
+    })
   }
-};
+}

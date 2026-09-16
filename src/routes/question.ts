@@ -27,21 +27,42 @@ export const createQuestion = async (
   res: Response
 ) => {
   try {
-    const { question, options, answer } = req.body
+    const { examId, text, question, options, answer } = req.body
+
+    const questionText = text || question
+
+    if (
+      !examId ||
+      !questionText ||
+      !Array.isArray(options) ||
+      options.length < 4 ||
+      !answer
+    ) {
+      return res.status(400).json({
+        message: "examId, question text, four options and answer are required",
+      })
+    }
 
     const newQuestion = await prisma.question.create({
       data: {
-        question,
-        options,
+        text: questionText,
+        question: questionText,
+        optionA: options[0],
+        optionB: options[1],
+        optionC: options[2],
+        optionD: options[3],
         answer,
+        exam: {
+          connect: { id: Number(examId) },
+        },
       },
     })
 
-    res.json(newQuestion)
+    return res.status(201).json(newQuestion)
   } catch (error) {
     console.error(error)
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to create question",
     })
   }

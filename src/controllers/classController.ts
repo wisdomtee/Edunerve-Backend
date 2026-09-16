@@ -2,17 +2,20 @@ import { Request, Response } from "express"
 import prisma from "../prisma"
 
 export const createClass = async (
-  req: Request,
+  req: any,
   res: Response
 ) => {
   try {
     const { name } = req.body
 
+    const schoolId = req.user?.schoolId
+
     const newClass = await prisma.class.create({
-      data: {
-        name,
-      },
-    })
+  data: {
+    name,
+    school: { connect: { id: schoolId } }
+  }
+})
 
     res.json(newClass)
   } catch (err) {
@@ -25,11 +28,17 @@ export const createClass = async (
 }
 
 export const getClasses = async (
-  req: Request,
+  req: any,
   res: Response
 ) => {
   try {
-    const classes = await prisma.class.findMany()
+    const schoolId = req.user?.schoolId
+
+    const classes = await prisma.class.findMany({
+      where: {
+        schoolId,
+      },
+    })
 
     res.json(classes)
   } catch (err) {

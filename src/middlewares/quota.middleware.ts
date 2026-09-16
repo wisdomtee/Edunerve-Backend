@@ -1,40 +1,44 @@
-import { Response, NextFunction } from "express";
-import { AuthRequest } from "./auth.middleware";
+import { Response, NextFunction } from "express"
+import { AuthRequest } from "./auth.middleware"
+import prisma from "../lib/prisma"
 
-export const quotaGuard = async (
+export const checkQuota = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const prisma = (await import("../prisma")).default;
+    const user = req.user
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user?.userId },
-      include: {
-        school: true,
-      },
-    });
-
-    if (!user?.school) {
-      return res.status(403).json({
-        message: "School not found",
-      });
+    if (!user || !user.schoolId) {
+      return res.status(401).json({ message: "Unauthorized or school not assigned" })
     }
 
-    if (
-      user.school.studentQuota !== null &&
-      user.school.studentCount >= user.school.studentQuota
-    ) {
-      return res.status(403).json({
-        message: "Student quota exceeded",
-      });
+    const school = await prisma.school.findUnique({
+      where: { id: user.schoolId },
+      select: {
+        id: true,
+        studentQuota: true,
+        studentCount: true,
+      }
+    })
+
+    if (!school) {
+      return res.status(404).json({ message: "School not found" })
     }
 
-    next();
-  } catch {
-    return res.status(500).json({
-      message: "Server error",
-    });
+    // studentQuota is nullable in your schema. If null, treat as unlimited.
+    const quotaLimit = school.studentQuota ?? Infinity
+
+    if (school.studentCount >= quotaLimit) {
+      return res.status(403).json({
+        message: "Student quota exceeded. Please upgrade your plan."
+      })
+    }
+
+    next()
+  } catch (error) {
+    console.error("Quota check error:", error)
+    return res.status(500).json({ message: "Internal server error" })
   }
-};
+}

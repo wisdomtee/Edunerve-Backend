@@ -59,6 +59,8 @@ model User {
   examResults        ExamResult[]  @relation("StudentExamResults")
   examSessions       ExamSession[]
   mustChangePassword Boolean       @default(true)
+  subscriptionActive Boolean  @default(false)
+  subscriptionExpiresAt DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -103,6 +105,9 @@ model School {
 
   billingCycle    String    @default("monthly")
   nextBillingDate DateTime?
+
+  studentQuota Int?
+  studentCount Int  @default(0)
 
   billingState SchoolBillingState?
 
@@ -238,6 +243,14 @@ model Subscription {
   @@index([status])
 }
 
+model SchoolSubscription {
+  id        Int      @id @default(autoincrement())
+}
+
+model SubscriptionPlan {
+  id        Int      @id @default(autoincrement())
+}
+
 model Subject {
   id       Int    @id @default(autoincrement())
   name     String
@@ -302,6 +315,7 @@ model ExamAttempt {
   pasteCount     Int @default(0)
   copyCount      Int @default(0)
   penalty        Int @default(0)
+  fullscreenExit Int @default(0)
 
   exam Exam @relation(fields: [examId], references: [id])
 
@@ -441,7 +455,7 @@ model ZoomMeeting {
 model Result {
   id        Int      @id @default(autoincrement())
   score     Float
-  examId    Int
+  examId    Int?
   term      String?
   session   String?
   createdAt DateTime @default(now())
@@ -451,16 +465,23 @@ model Result {
   subjectId Int
   schoolId  Int
   teacherId Int?
+  verificationCode String?
 
   student Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   school  School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   teacher Teacher? @relation(fields: [teacherId], references: [id])
-  exam    Exam     @relation(fields: [examId], references: [id])
+  exam    Exam?    @relation(fields: [examId], references: [id])
 
   @@index([studentId])
   @@index([schoolId])
   @@index([subjectId])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  action    String
+  createdAt DateTime @default(now())
 }
 
 model LessonNote {
@@ -515,6 +536,14 @@ model DeviceToken {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PaymentTransaction {
+  id        Int      @id @default(autoincrement())
+  reference String   @unique
+  status    String   @default("PENDING")
+  schoolId  Int?
+  createdAt DateTime @default(now())
 }
 
 model Fee {

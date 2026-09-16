@@ -1,75 +1,39 @@
-import { Request, Response } from "express"
-import prisma from "../prisma"
+import { Router, Request, Response } from "express"
+import prisma from "../lib/prisma"
 
-// CREATE ZOOM MEETING (ADMIN)
-export const createZoomMeeting = async (req: Request, res: Response) => {
+const router = Router()
+
+// Get Zoom meeting by ID
+router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const {
-      title,
-      meetingId,
-      passcode,
-      startTime,
-      joinUrl,
-      classId,
-    } = req.body
+    const { id } = req.params
 
-    /* =========================
-       VALIDATION
-    ========================= */
-    if (!title || !meetingId || !startTime || !joinUrl) {
+    if (!id) {
       return res.status(400).json({
-        message:
-          "title, meetingId, startTime, and joinUrl are required",
+        message: "Meeting ID is required",
       })
     }
 
-    /* =========================
-       DATE VALIDATION
-    ========================= */
-    const parsedDate = new Date(startTime)
-
-    if (!(parsedDate instanceof Date) || isNaN(parsedDate.getTime())) {
-      return res.status(400).json({
-        message: "Invalid startTime format",
-      })
-    }
-
-    /* =========================
-       DUPLICATE CHECK
-    ========================= */
-    const existingMeeting = await prisma.zoomMeeting.findUnique({
-      where: { meetingId },
-    })
-
-    if (existingMeeting) {
-      return res.status(409).json({
-        message: "Meeting ID already exists",
-      })
-    }
-
-    /* =========================
-       CREATE MEETING
-    ========================= */
-    const meeting = await prisma.zoomMeeting.create({
-      data: {
-        title: title.trim(),
-        meetingId: meetingId.trim(),
-        passcode: passcode?.trim() || null,
-        startTime: parsedDate,
-        joinUrl: joinUrl.trim(),
-        classId: classId ? Number(classId) : null,
+    const meeting = await prisma.zoomMeeting.findUnique({
+      where: {
+        id: Number(id),
       },
     })
 
-    return res.status(201).json({
-      message: "Zoom meeting created successfully",
-      meeting,
-    })
-  } catch (err) {
-    console.error("CREATE_ZOOM_ERROR:", err)
+    if (!meeting) {
+      return res.status(404).json({
+        message: "Meeting not found",
+      })
+    }
+
+    return res.json(meeting)
+  } catch (error) {
+    console.error("Zoom route error:", error)
 
     return res.status(500).json({
-      message: "Failed to create meeting",
+      message: "Server error",
     })
   }
-}
+})
+
+export default router

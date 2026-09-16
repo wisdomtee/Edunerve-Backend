@@ -82,16 +82,26 @@ router.post(
         })
       }
 
-      const question = await prisma.question.create({
-        data: {
-          examId: Number(examId),
-          text,
-          options,
-          answer,
-        },
-      })
+if (!Array.isArray(options) || options.length < 4) {
+  return res.status(400).json({ message: "Four options required" })
+}
 
-      return res.status(201).json(question)
+const createdQuestion = await prisma.question.create({
+  data: {
+    text,
+    question: text,
+    optionA: options[0],
+    optionB: options[1],
+    optionC: options[2],
+    optionD: options[3],
+    answer,
+    exam: {
+      connect: { id: Number(examId) }
+    }
+  }
+})
+
+      return res.status(201).json(createdQuestion)
     } catch (error: any) {
       console.error("CREATE QUESTION ERROR:", error)
       return res.status(500).json({

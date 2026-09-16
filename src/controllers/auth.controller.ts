@@ -1,10 +1,10 @@
 import { Request, Response } from "express"
 import bcrypt from "bcrypt"
-import prisma from "../prisma"
+import prisma from "../lib/prisma"
 import { generateToken } from "../utils/jwt"
 
 /**
- * REGISTER USER (SCHOOL-AWARE OPTIONAL)
+ * REGISTER USER
  */
 export const register = async (req: Request, res: Response) => {
   try {
@@ -23,7 +23,9 @@ export const register = async (req: Request, res: Response) => {
     })
 
     if (existingUser) {
-      return res.status(400).json({ message: "User already exists" })
+      return res.status(400).json({
+        message: "User already exists",
+      })
     }
 
     let school = null
@@ -48,13 +50,14 @@ export const register = async (req: Request, res: Response) => {
         email: normalizedEmail,
         password: hashedPassword,
         schoolId: school ? school.id : null,
-        role: "USER",
+        role: "SCHOOL_ADMIN", // ✅ Must match enum values logically
       },
     })
 
     const token = generateToken({
       id: user.id,
-      schoolId: user.schoolId,
+      email: user.email,
+      schoolId: user.schoolId ?? 0,
       role: user.role,
     })
 
@@ -65,6 +68,7 @@ export const register = async (req: Request, res: Response) => {
       token,
     })
   } catch (error) {
+    console.error(error)
     return res.status(500).json({
       message: "Registration failed",
     })
@@ -72,7 +76,7 @@ export const register = async (req: Request, res: Response) => {
 }
 
 /**
- * LOGIN USER (SCHOOL-BASED SAAS LOGIN)
+ * LOGIN USER
  */
 export const login = async (req: Request, res: Response) => {
   try {
@@ -117,7 +121,8 @@ export const login = async (req: Request, res: Response) => {
 
     const token = generateToken({
       id: user.id,
-      schoolId: school.id,
+      email: user.email,
+      schoolId: user.schoolId ?? 0,
       role: user.role,
     })
 
@@ -129,6 +134,7 @@ export const login = async (req: Request, res: Response) => {
       school,
     })
   } catch (error) {
+    console.error(error)
     return res.status(500).json({
       message: "Login failed",
     })

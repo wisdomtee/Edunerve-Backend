@@ -1,48 +1,50 @@
 import { Request, Response } from "express"
+import prisma from "../lib/prisma"
 import bcrypt from "bcrypt"
-import prisma from "../prisma"
+import { AuthRequest } from "../middlewares/auth.middleware"
 
 export const createStudent = async (
-  req: Request,
+  req: AuthRequest,
   res: Response
 ) => {
   try {
-    const {
-      name,
-      email,
-      password,
-      classId,
-    } = req.body
+    const { name, email, password, studentId, classId } = req.body
+    const schoolId = req.user?.schoolId
 
-    const existing =
-      await prisma.student.findUnique({
-        where: { email },
-      })
-
-    if (existing) {
+    if (!schoolId) {
       return res.status(400).json({
-        message: "Student already exists",
+        message: "No school assigned",
       })
     }
 
-    const hashedPassword =
-      await bcrypt.hash(password, 10)
-
-    const student =
-      await prisma.student.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-          classId: Number(classId),
-        },
+    if (!name || !email || !password || !studentId) {
+      return res.status(400).json({
+        message: "name, email, password and studentId are required",
       })
+    }
 
-    res.json(student)
+    const hashedPassword = await bcrypt.hash(password, 10)
+
+    const student = await prisma.student.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        studentId,
+        class: classId
+          ? { connect: { id: Number(classId) } }
+          : undefined,
+        school: {
+          connect: { id: schoolId },
+        },
+      },
+    })
+
+    return res.json(student)
   } catch (err) {
     console.error(err)
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to create student",
     })
   }
@@ -53,18 +55,17 @@ export const getStudents = async (
   res: Response
 ) => {
   try {
-    const students =
-      await prisma.student.findMany({
-        include: {
-          class: true,
-        },
-      })
+    const students = await prisma.student.findMany({
+      include: {
+        class: true,
+      },
+    })
 
-    res.json(students)
+    return res.json(students)
   } catch (err) {
     console.error(err)
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to fetch students",
     })
   }

@@ -1,52 +1,33 @@
-import prisma from "../prisma";
-import bcrypt from "bcrypt";
+import prisma from "../lib/prisma"
 
-/**
- * School Onboarding Pipeline
- */
-export const onboardSchool = async (data: any) => {
-  const { schoolName, adminName, email, password } = data;
+function generateSchoolCode(): string {
+  return "SCH-" + Math.random().toString(36).substring(2, 8).toUpperCase()
+}
 
-  // 1. Create School Tenant
+export const onboardSchool = async (data: {
+  name: string
+  address: string
+}) => {
+  // Create school with required fields
   const school = await prisma.school.create({
     data: {
-      name: schoolName
-    }
-  });
+      name: data.name,
+      address: data.address,
+      schoolCode: generateSchoolCode(),
+    },
+  })
 
-  // 2. Create Admin User
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const adminUser = await prisma.user.create({
+  // Create a subscription record using the Subscription model
+  const subscription = await prisma.subscription.create({
     data: {
-      name: adminName,
-      email,
-      password: hashedPassword,
-      role: "ADMIN",
-      schoolId: school.id
-    }
-  });
+      schoolId: school.id,
+      plan: "NORMAL",
+      status: "active",
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      amount: 0,
+    },
+  })
 
-  // 3. Assign Default Subscription Plan
-  const defaultPlan = await prisma.subscriptionPlan.findFirst({
-    where: {
-      name: "Basic"
-    }
-  });
-
-  if (defaultPlan) {
-    await prisma.schoolSubscription.create({
-      data: {
-        schoolId: school.id,
-        planId: defaultPlan.id,
-        status: "ACTIVE",
-        startDate: new Date()
-      }
-    });
-  }
-
-  return {
-    school,
-    adminUser
-  };
-};
+  return { school, subscription }
+}

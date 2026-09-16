@@ -1,3 +1,6 @@
+import { PrismaClient } from "@prisma/client"
+
+const prisma = new PrismaClient()
 export const paystackWebhook = async (req: any, res: any) => {
   const event = req.body;
 

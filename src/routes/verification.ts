@@ -1,43 +1,47 @@
-import express from "express"
-import { PrismaClient } from "@prisma/client"
+import { Router } from "express"
+import prisma from "../lib/prisma"
 
-const router = express.Router()
-const prisma = new PrismaClient()
+const router = Router()
 
-router.post("/verify", async (req, res) => {
+router.get("/verify/:code", async (req, res) => {
   try {
+    const { code } = req.params
 
-    const { studentId, verificationCode } = req.body
-
-    const result = await prisma.result.findMany({
-      where: {
-        studentId: studentId,
-        verificationCode: verificationCode
-      },
-      include: {
-        student: true
-      }
-    })
-
-    if (result.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Result not found or invalid verification code"
+    if (!code) {
+      return res.status(400).json({
+        message: "Verification code is required",
       })
     }
 
-    res.json({
-      success: true,
-      data: result
+    const result = await prisma.result.findFirst({
+      where: {
+        OR: [
+          { verificationCode: code },
+          { id: Number(code) },
+        ],
+      },
+      include: {
+        student: true,
+        subject: true,
+        school: true,
+      },
     })
 
+    if (!result) {
+      return res.status(404).json({
+        message: "Result not found",
+      })
+    }
+
+    return res.json({
+      verified: true,
+      result,
+    })
   } catch (error) {
+    console.error("Verification error:", error)
 
-    console.error(error)
-
-    res.status(500).json({
-      success: false,
-      message: "Server error"
+    return res.status(500).json({
+      message: "Server error",
     })
   }
 })

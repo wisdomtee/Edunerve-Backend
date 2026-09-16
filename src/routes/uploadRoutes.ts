@@ -1,6 +1,6 @@
 import express from "express"
 import prisma from "../prisma"
-import { upload } from "../middleware/upload"
+import upload from '../middlewares/upload'
 
 const router = express.Router()
 
