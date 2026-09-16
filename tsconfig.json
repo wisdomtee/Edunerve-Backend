@@ -20,7 +20,8 @@
     "src/middlewares/**/*",
     "src/lib/**/*",
     "src/utils/**/*",
-    "src/index.ts"
+    "src/index.ts",
+    "src/server.ts"
   ],
 
   "exclude": [
