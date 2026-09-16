@@ -226,6 +226,15 @@ app.get("/", (_req, res) => {
   res.send("EduCore API Running 🚀")
 })
 
+app.get("/__debug/env-host", (_req, res) => {
+  try {
+    const url = new URL(process.env.DATABASE_URL || "")
+    res.json({ ok: true, host: url.hostname, port: Number(url.port) || 5432 })
+  } catch {
+    res.status(500).json({ ok: false, error: "DATABASE_URL is missing or invalid" })
+  }
+})
+
 /* =========================
    AUTH ROUTES
 ========================= */
