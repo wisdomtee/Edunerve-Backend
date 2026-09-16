@@ -8,6 +8,7 @@ import cors from "cors"
 import dotenv from "dotenv"
 import path from "path"
 import http from "http"
+import net from "net"
 import { Server } from "socket.io"
 import cron from "node-cron"
 
@@ -228,10 +229,73 @@ app.get("/", (_req, res) => {
 
 app.get("/__debug/env-host", (_req, res) => {
   try {
-    const url = new URL(process.env.DATABASE_URL || "")
-    res.json({ ok: true, host: url.hostname, port: Number(url.port) || 5432 })
-  } catch {
-    res.status(500).json({ ok: false, error: "DATABASE_URL is missing or invalid" })
+    const databaseUrl = process.env.DATABASE_URL
+
+    if (!databaseUrl) {
+      return res.status(500).json({
+        ok: false,
+        error: "DATABASE_URL is missing",
+      })
+    }
+
+    const url = new URL(databaseUrl)
+    const host = url.hostname
+    const port = Number(url.port) || 5432
+    const startedAt = Date.now()
+
+    const socket = net.createConnection({
+      host,
+      port,
+    })
+
+    socket.setTimeout(15000)
+
+    socket.once("connect", () => {
+      socket.destroy()
+
+      res.status(200).json({
+        ok: true,
+        tcp: true,
+        host,
+        port,
+        elapsedMs: Date.now() - startedAt,
+      })
+    })
+
+    socket.once("timeout", () => {
+      socket.destroy()
+
+      res.status(504).json({
+        ok: false,
+        tcp: false,
+        host,
+        port,
+        error: "TCP connection timed out",
+        elapsedMs: Date.now() - startedAt,
+      })
+    })
+
+    socket.once("error", (error) => {
+      socket.destroy()
+
+      res.status(502).json({
+        ok: false,
+        tcp: false,
+        host,
+        port,
+        error: error.message,
+        code: (error as NodeJS.ErrnoException).code,
+        elapsedMs: Date.now() - startedAt,
+      })
+    })
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unknown error",
+    })
   }
 })
 
