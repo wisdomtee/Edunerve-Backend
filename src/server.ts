@@ -231,27 +231,45 @@ app.get("/", (_req, res) => {
 
 app.get("/__debug/env-host", async (_req, res) => {
   const startedAt = Date.now()
+  const databaseUrl = process.env.DATABASE_URL
+
+  if (!databaseUrl) {
+    return res.status(500).json({
+      ok: false,
+      error: "DATABASE_URL is missing",
+    })
+  }
+
+  let host = "unknown"
+  let port = 5432
 
   try {
-    const databaseUrl = process.env.DATABASE_URL
-
-    if (!databaseUrl) {
-      return res.status(500).json({
-        ok: false,
-        error: "DATABASE_URL is missing",
-      })
-    }
-
     const url = new URL(databaseUrl)
-    const host = url.hostname
-    const port = Number(url.port) || 5432
+    host = url.hostname
+    port = Number(url.port) || 5432
+  } catch {
+    return res.status(500).json({
+      ok: false,
+      error: "DATABASE_URL is invalid",
+    })
+  }
 
-    await prisma.$queryRaw`SELECT 1`
+  const client = new Client({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: 10000,
+  })
+
+  try {
+    await client.connect()
+
+    const result = await client.query("SELECT 1 AS ok")
 
     return res.status(200).json({
       ok: true,
       tcp: true,
       postgres: true,
+      driver: "pg",
+      queryResult: result.rows[0],
       host,
       port,
       elapsedMs: Date.now() - startedAt,
@@ -261,12 +279,23 @@ app.get("/__debug/env-host", async (_req, res) => {
       ok: false,
       tcp: true,
       postgres: false,
+      driver: "pg",
+      host,
+      port,
       error:
         error instanceof Error
           ? error.message
-          : "Unknown database error",
+          : "Unknown PostgreSQL error",
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : undefined,
       elapsedMs: Date.now() - startedAt,
     })
+  } finally {
+    try {
+      await client.end()
+    } catch {}
   }
 })
 
