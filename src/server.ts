@@ -9,6 +9,7 @@ import dotenv from "dotenv"
 import path from "path"
 import http from "http"
 import net from "net"
+import prisma from "./lib/prisma"
 import { Server } from "socket.io"
 import cron from "node-cron"
 
@@ -227,7 +228,9 @@ app.get("/", (_req, res) => {
   res.send("EduCore API Running 🚀")
 })
 
-app.get("/__debug/env-host", (_req, res) => {
+app.get("/__debug/env-host", async (_req, res) => {
+  const startedAt = Date.now()
+
   try {
     const databaseUrl = process.env.DATABASE_URL
 
@@ -241,60 +244,27 @@ app.get("/__debug/env-host", (_req, res) => {
     const url = new URL(databaseUrl)
     const host = url.hostname
     const port = Number(url.port) || 5432
-    const startedAt = Date.now()
 
-    const socket = net.createConnection({
+    await prisma.$queryRaw`SELECT 1`
+
+    return res.status(200).json({
+      ok: true,
+      tcp: true,
+      postgres: true,
       host,
       port,
-    })
-
-    socket.setTimeout(15000)
-
-    socket.once("connect", () => {
-      socket.destroy()
-
-      res.status(200).json({
-        ok: true,
-        tcp: true,
-        host,
-        port,
-        elapsedMs: Date.now() - startedAt,
-      })
-    })
-
-    socket.once("timeout", () => {
-      socket.destroy()
-
-      res.status(504).json({
-        ok: false,
-        tcp: false,
-        host,
-        port,
-        error: "TCP connection timed out",
-        elapsedMs: Date.now() - startedAt,
-      })
-    })
-
-    socket.once("error", (error) => {
-      socket.destroy()
-
-      res.status(502).json({
-        ok: false,
-        tcp: false,
-        host,
-        port,
-        error: error.message,
-        code: (error as NodeJS.ErrnoException).code,
-        elapsedMs: Date.now() - startedAt,
-      })
+      elapsedMs: Date.now() - startedAt,
     })
   } catch (error) {
-    res.status(500).json({
+    return res.status(502).json({
       ok: false,
+      tcp: true,
+      postgres: false,
       error:
         error instanceof Error
           ? error.message
-          : "Unknown error",
+          : "Unknown database error",
+      elapsedMs: Date.now() - startedAt,
     })
   }
 })
