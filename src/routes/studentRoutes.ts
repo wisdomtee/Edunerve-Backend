@@ -5,9 +5,11 @@ import {
   getStudents,
 } from "../controllers/studentController"
 
+import { authenticate } from "../middlewares/auth.middleware"
+
 const router = express.Router()
 
-router.post("/", createStudent)
-router.get("/", getStudents)
+router.post("/", authenticate, createStudent)
+router.get("/", authenticate, getStudents)
 
 export default router
