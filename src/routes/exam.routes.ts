@@ -3,6 +3,7 @@ import express from "express"
 import {
   createExamWithQuestions,
   getExamById,
+  getStudentExams,
 } from "../controllers/exam.controller"
 
 import {
@@ -11,24 +12,68 @@ import {
   reportCheatingEvent,
 } from "../controllers/examAttempt.controller"
 
+import { authenticate } from "../middlewares/auth.middleware"
+
 const router = express.Router()
 
-/* ================= TEST ================= */
+/* =========================
+   TEST
+========================= */
 router.get("/test", (_req, res) => {
   res.json({
     message: "CBT route working 🚀",
   })
 })
 
-/* ================= EXAM ================= */
-router.post("/exam", createExamWithQuestions)
-router.get("/exam/:id", getExamById)
+/*
+  Everything below requires a valid JWT.
+*/
+router.use(authenticate)
 
-/* ================= CBT FLOW ================= */
-router.post("/exam/start", startExamAttempt)
-router.post("/exam/submit", submitExamAttempt)
+/* =========================
+   STUDENT EXAMS
+========================= */
 
-/* ================= ANTI-CHEAT ================= */
-router.post("/exam/cheat", reportCheatingEvent)
+router.get(
+  "/student",
+  getStudentExams
+)
+
+/* =========================
+   EXAM
+========================= */
+
+router.post(
+  "/exam",
+  createExamWithQuestions
+)
+
+router.get(
+  "/exam/:id",
+  getExamById
+)
+
+/* =========================
+   CBT FLOW
+========================= */
+
+router.post(
+  "/exam/start",
+  startExamAttempt
+)
+
+router.post(
+  "/exam/submit",
+  submitExamAttempt
+)
+
+/* =========================
+   ANTI-CHEAT
+========================= */
+
+router.post(
+  "/exam/cheat",
+  reportCheatingEvent
+)
 
 export default router
