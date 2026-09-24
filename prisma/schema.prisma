@@ -449,7 +449,11 @@ model ZoomMeeting {
   joinUrl   String
   startTime DateTime
   classId   Int?
+  schoolId  Int?
   createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([classId])
 }
 
 model Result {
