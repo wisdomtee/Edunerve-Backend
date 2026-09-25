@@ -1,12 +1,36 @@
-import { Router } from "express"
+import { Router, Response } from "express"
 import prisma from "../prisma"
-import { authMiddleware } from "../middlewares/auth"
+import { authMiddleware, AuthRequest } from "../middlewares/auth"
 
 const router = Router()
 
-router.get("/stats", authMiddleware, async (req, res) => {
+router.get("/stats", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const totalStudents = await prisma.student.count()
+    const user = req.user
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      })
+    }
+
+    /*
+     * School admins, teachers, parents and students are scoped
+     * to their own school. Super admins can see global totals.
+     */
+    const schoolId =
+      user.role === "SUPER_ADMIN"
+        ? undefined
+        : user.schoolId
+
+    if (
+      user.role !== "SUPER_ADMIN" &&
+      !schoolId
+    ) {
+      return res.status(400).json({
+        message: "No school assigned to this user",
+      })
+    }
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -14,44 +38,95 @@ router.get("/stats", authMiddleware, async (req, res) => {
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
 
-    const presentToday = await prisma.attendance.count({
-      where: {
-        date: {
-          gte: today,
-          lt: tomorrow,
-        },
-        status: "PRESENT",
-      },
-    })
+    const [
+      totalStudents,
+      totalTeachers,
+      totalClasses,
+      presentToday,
+      absentToday,
+      lateToday,
+    ] = await Promise.all([
+      prisma.student.count({
+        where: schoolId
+          ? { schoolId }
+          : undefined,
+      }),
 
-    const absentToday = await prisma.attendance.count({
-      where: {
-        date: {
-          gte: today,
-          lt: tomorrow,
-        },
-        status: "ABSENT",
-      },
-    })
+      prisma.teacher.count({
+        where: schoolId
+          ? { schoolId }
+          : undefined,
+      }),
 
-    const lateToday = await prisma.attendance.count({
-      where: {
-        date: {
-          gte: today,
-          lt: tomorrow,
+      prisma.class.count({
+        where: schoolId
+          ? { schoolId }
+          : undefined,
+      }),
+
+      prisma.attendance.count({
+        where: {
+          date: {
+            gte: today,
+            lt: tomorrow,
+          },
+          status: "PRESENT",
+          ...(schoolId
+            ? {
+                student: {
+                  schoolId,
+                },
+              }
+            : {}),
         },
-        status: "LATE",
-      },
-    })
+      }),
+
+      prisma.attendance.count({
+        where: {
+          date: {
+            gte: today,
+            lt: tomorrow,
+          },
+          status: "ABSENT",
+          ...(schoolId
+            ? {
+                student: {
+                  schoolId,
+                },
+              }
+            : {}),
+        },
+      }),
+
+      prisma.attendance.count({
+        where: {
+          date: {
+            gte: today,
+            lt: tomorrow,
+          },
+          status: "LATE",
+          ...(schoolId
+            ? {
+                student: {
+                  schoolId,
+                },
+              }
+            : {}),
+        },
+      }),
+    ])
 
     return res.status(200).json({
       totalStudents,
+      totalTeachers,
+      totalClasses,
       presentToday,
       absentToday,
       lateToday,
     })
   } catch (error: any) {
     console.error("DASHBOARD STATS ERROR:", error)
+
     return res.status(500).json({
       message: "Failed to fetch dashboard stats",
       error: error.message,
@@ -59,8 +134,30 @@ router.get("/stats", authMiddleware, async (req, res) => {
   }
 })
 
-router.get("/attendance-week", authMiddleware, async (req, res) => {
+router.get("/attendance-week", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const user = req.user
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      })
+    }
+
+    const schoolId =
+      user.role === "SUPER_ADMIN"
+        ? undefined
+        : user.schoolId
+
+    if (
+      user.role !== "SUPER_ADMIN" &&
+      !schoolId
+    ) {
+      return res.status(400).json({
+        message: "No school assigned to this user",
+      })
+    }
+
     const today = new Date()
     today.setHours(23, 59, 59, 999)
 
@@ -75,6 +172,13 @@ router.get("/attendance-week", authMiddleware, async (req, res) => {
           lte: today,
         },
         status: "PRESENT",
+        ...(schoolId
+          ? {
+              student: {
+                schoolId,
+              },
+            }
+          : {}),
       },
       select: {
         date: true,
@@ -89,25 +193,31 @@ router.get("/attendance-week", authMiddleware, async (req, res) => {
     for (let i = 0; i < 7; i++) {
       const d = new Date(sevenDaysAgo)
       d.setDate(sevenDaysAgo.getDate() + i)
+
       const key = d.toISOString().split("T")[0]
+
       grouped[key] = 0
     }
 
     attendance.forEach((item) => {
       const key = item.date.toISOString().split("T")[0]
+
       if (grouped[key] !== undefined) {
         grouped[key] += 1
       }
     })
 
-    const result = Object.entries(grouped).map(([date, present]) => ({
-      date,
-      present,
-    }))
+    const result = Object.entries(grouped).map(
+      ([date, present]) => ({
+        date,
+        present,
+      })
+    )
 
     return res.status(200).json(result)
   } catch (error: any) {
     console.error("ATTENDANCE WEEK ERROR:", error)
+
     return res.status(500).json({
       message: "Failed to fetch weekly attendance",
       error: error.message,
