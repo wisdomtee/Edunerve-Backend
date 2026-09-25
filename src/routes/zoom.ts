@@ -163,6 +163,25 @@ router.post(
         parsedClassId = value
       }
 
+      if (parsedClassId !== null) {
+        const schoolClass = await prisma.class.findFirst({
+          where: {
+            id: parsedClassId,
+            schoolId: user.schoolId,
+          },
+          select: {
+            id: true,
+          },
+        })
+
+        if (!schoolClass) {
+          return res.status(400).json({
+            message:
+              "The selected class does not belong to your school",
+          })
+        }
+      }
+
       const newMeeting = await prisma.zoomMeeting.create({
         data: {
           title: String(title).trim(),
