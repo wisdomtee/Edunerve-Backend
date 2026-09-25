@@ -251,6 +251,112 @@ export const getStudentExams = async (
   }
 }
 
+/* =========================================
+   GET ADMIN EXAMS
+   Returns exams belonging to the user's school.
+   Never returns correct answers.
+========================================= */
+export const getAdminExams = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const user = req.user
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      })
+    }
+
+    if (
+      !["SCHOOL_ADMIN", "TEACHER"].includes(
+        user.role
+      )
+    ) {
+      return res.status(403).json({
+        message:
+          "Only school administrators and teachers can access admin exams",
+      })
+    }
+
+    if (!user.schoolId) {
+      return res.status(400).json({
+        message: "User is not assigned to a school",
+      })
+    }
+
+    const exams = await prisma.exam.findMany({
+      where: {
+        schoolId: user.schoolId,
+      },
+      select: {
+        id: true,
+        title: true,
+        subject: true,
+        classId: true,
+        className: true,
+        duration: true,
+        startTime: true,
+        endTime: true,
+        createdAt: true,
+        _count: {
+          select: {
+            questions: true,
+            attempts: true,
+          },
+        },
+      },
+      orderBy: [
+        {
+          startTime: "asc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+    })
+
+    const now = new Date()
+
+    const formattedExams = exams.map((exam) => {
+      let status = "AVAILABLE"
+
+      if (exam.startTime && now < exam.startTime) {
+        status = "UPCOMING"
+      } else if (exam.endTime && now > exam.endTime) {
+        status = "ENDED"
+      }
+
+      return {
+        id: exam.id,
+        title: exam.title,
+        subject: exam.subject,
+        classId: exam.classId,
+        className: exam.className,
+        duration: exam.duration,
+        startTime: exam.startTime,
+        endTime: exam.endTime,
+        createdAt: exam.createdAt,
+        questionCount: exam._count.questions,
+        attemptCount: exam._count.attempts,
+        status,
+      }
+    })
+
+    return res.status(200).json({
+      exams: formattedExams,
+    })
+  } catch (error: any) {
+    console.error("GET ADMIN EXAMS ERROR:", error)
+
+    return res.status(500).json({
+      message: "Failed to fetch admin exams",
+      error: error.message,
+    })
+  }
+}
+
 export const getExamById = async (
   req: AuthRequest,
   res: Response

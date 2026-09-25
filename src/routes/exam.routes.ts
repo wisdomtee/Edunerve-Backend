@@ -2,6 +2,7 @@ import express from "express"
 
 import {
   createExamWithQuestions,
+  getAdminExams,
   getExamById,
   getStudentExams,
 } from "../controllers/exam.controller"
@@ -29,6 +30,15 @@ router.get("/test", (_req, res) => {
   Everything below requires a valid JWT.
 */
 router.use(authenticate)
+
+/* =========================
+   ADMIN EXAMS
+========================= */
+
+router.get(
+  "/admin",
+  getAdminExams
+)
 
 /* =========================
    STUDENT EXAMS
